@@ -1,19 +1,38 @@
-# edubase-book-downloader
-Very very basic puppeteer code that authenticates the user and navigates through a book in order to generate and store pdfs. For all that want to use proper note apps (not the f* edubase reader app).
+# Edubase Downloader
 
-## How to
-1. Clone the repository
-2. navigate into the repository directory with your preferred command line tool
-3. run `npm install`
-4. adjust the values (const variables) in the index.js (namely all that are filled with 'changethat') to your liking. don't forget the start and end page vars.
-5. run `node .`
-6. wait till the process finishes (or stops with an error, then you know you have to fix something).
+A small Mac app that saves the Edubase books you have access to as one PDF each, so you can
+read and annotate them in a proper notes app.
 
+1. Sign in once (on Edubase's own login page, inside the app; Office 365, Edulog, Google and
+   Apple logins work too). The app never sees your password and stays signed in.
+2. Click a book in your library.
+3. Click **Als PDF speichern**. The PDF lands in Downloads (changeable at the top right).
 
- > I coded this only to fulfill a purpose. I didn't invest time to 'make it nice' or optimise it in any way. One or multiple parts of the script may break over time due to changes in the edupage website. If you fix them, please share your improvements either in your own repository or via pull request to this one. Thanks and enjoy!
+You can also paste an Edubase link (`https://app.edubase.ch/#doc/12345/1`) with ⌘V to open
+that book directly, and save only a page range.
 
- ## Code overview for faster understanding
- The script is very simple and consists of two parts. The first part is about the login. It essentially navigates to the login page, utilizes the auto focus on the form fields to fill them and hits enter afterwards. The second part is a bit more complicated: It navigates to the page (in case of the first one by going to the url and in all other cases by hitting the next button) in a loop and generates and stores for each page a pdf of its print version (which looks quite nice).
+## How it works
 
+The app drives the real Edubase web app in a hidden Electron window (no Puppeteer, no second
+browser). For each page it waits until the page has finished loading, prints it with Chromium's
+own PDF printer (text stays text), and finally merges all pages with `pdf-lib`.
 
+- `edubase.js` – login window, library, page-by-page download, merge
+- `main.js` – window, settings (output folder), IPC
+- `preload.js` – the bridge the UI may call
+- `ui/` – the interface (German)
 
+## Run and build
+
+```sh
+npm install
+npm start          # run from source
+npm run dist       # dist/mac-arm64/Edubase Downloader.app (unsigned)
+```
+
+Edubase can change its web app at any time. The selectors the app relies on are all in
+`edubase.js` (`.lu-library-item`, `.lu-profile-settings__login`, `[data-item=page-settings]`,
+`[data-action=footer-next-page]`).
+
+Based on [AndrinGautschi/edubase-book-downloader](https://github.com/AndrinGautschi/edubase-book-downloader) (GPL-3.0).
+For personal use with books you have a licence for.

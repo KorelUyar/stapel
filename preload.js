@@ -1,9 +1,21 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("edubase", {
-  startDownload: (config) => ipcRenderer.invoke("start-download", config),
-  chooseDirectory: () => ipcRenderer.invoke("choose-directory"),
-  openFolder: (path) => ipcRenderer.invoke("open-folder", path),
-  getDownloadsPath: () => ipcRenderer.invoke("get-downloads-path"),
-  onProgress: (cb) => ipcRenderer.on("progress", (_, data) => cb(data)),
+const call = async (channel, ...args) => {
+  const r = await ipcRenderer.invoke(channel, ...args);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+};
+
+contextBridge.exposeInMainWorld("app", {
+  status: () => call("status"),
+  login: () => call("login"),
+  logout: () => call("logout"),
+  library: () => call("library"),
+  download: (book) => call("download", book),
+  cancel: () => ipcRenderer.invoke("cancel"),
+  settings: () => ipcRenderer.invoke("settings"),
+  chooseFolder: () => ipcRenderer.invoke("choose-folder"),
+  openFile: (p) => ipcRenderer.invoke("open-file", p),
+  reveal: (p) => ipcRenderer.invoke("reveal", p),
+  onProgress: (cb) => ipcRenderer.on("progress", (_e, p) => cb(p)),
 });

@@ -1,11 +1,5 @@
 node_modules/
 dist/
 .DS_Store
-
-# Generated single-page PDFs and merged output
-page-*.pdf
-buch.pdf
 *.pdf
-
-# Local secrets
 .env

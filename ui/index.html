@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'"
+    />
+    <title>Edubase Downloader</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="bar-title">Edubase Downloader</div>
+      <div class="bar-actions">
+        <button class="chip" id="folderBtn" title="Speicherort ändern" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.6l1.4 1.5h6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" /></svg>
+          <span id="folderName">Downloads</span>
+        </button>
+        <button class="chip ghost" id="logoutBtn" hidden>Abmelden</button>
+      </div>
+    </header>
+
+    <!-- 1 · connecting -->
+    <main class="screen" id="boot">
+      <div class="center">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="muted" id="bootText">Verbinde mit Edubase …</p>
+        <button class="btn secondary" id="retryBtn" hidden>Nochmals versuchen</button>
+      </div>
+    </main>
+
+    <!-- 2 · signed out -->
+    <main class="screen" id="welcome" hidden>
+      <div class="welcome">
+        <div class="stack" aria-hidden="true">
+          <span class="book b1"></span><span class="book b2"></span><span class="book b3"></span>
+        </div>
+        <h1>Deine Schulbücher<br />als PDF.</h1>
+        <p class="lead">Einmal anmelden, Buch anklicken, fertig.</p>
+        <button class="btn primary big" id="loginBtn">Bei Edubase anmelden</button>
+        <p class="fine">
+          Du meldest dich direkt auf der Seite von Edubase an, auch mit Office 365 oder Edulog.
+          Die App sieht dein Passwort nie und bleibt angemeldet.
+        </p>
+        <button class="link" id="guestBtn">Ohne Anmeldung die Gratis-Bücher ansehen</button>
+      </div>
+    </main>
+
+    <!-- 3 · library -->
+    <main class="screen" id="library" hidden>
+      <div class="lib-head">
+        <div>
+          <h2>Deine Bücher</h2>
+          <p class="muted" id="libCount"></p>
+        </div>
+        <div class="lib-tools">
+          <input type="search" id="search" placeholder="Suchen" autocomplete="off" spellcheck="false" />
+          <button class="icon-btn" id="reloadBtn" title="Bibliothek neu laden">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" /></svg>
+          </button>
+        </div>
+      </div>
+      <div class="guest-note" id="guestNote" hidden>
+        Du siehst nur die Gratis-Bücher.
+        <button class="link" id="guestLoginBtn">Anmelden</button>
+      </div>
+      <div class="grid" id="grid"></div>
+      <p class="empty muted" id="empty" hidden>Keine Bücher gefunden.</p>
+      <p class="paste-hint">Tipp: Du kannst auch einen Edubase-Link einfügen (⌘V).</p>
+    </main>
+
+    <!-- book sheet -->
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="sheet" id="sheet" hidden aria-modal="true" role="dialog">
+      <button class="close" id="closeSheet" title="Schliessen">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+      </button>
+
+      <div class="sheet-cover">
+        <img id="sheetCover" alt="" />
+        <img id="sheetPreview" class="preview" alt="" />
+        <div class="done-badge" id="doneBadge" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9" /></svg>
+        </div>
+      </div>
+
+      <h3 id="sheetTitle"></h3>
+
+      <!-- before -->
+      <section id="stateIdle">
+        <div class="seg" role="radiogroup">
+          <button class="on" data-range="all">Ganzes Buch</button>
+          <button data-range="part">Nur Seiten …</button>
+        </div>
+        <div class="range" id="rangeFields" hidden>
+          <label>von <input type="number" id="fromPage" min="1" value="1" /></label>
+          <label>bis <input type="number" id="toPage" min="1" placeholder="Ende" /></label>
+        </div>
+        <button class="btn primary wide" id="startBtn">Als PDF speichern</button>
+        <p class="fine center-text" id="saveWhere"></p>
+      </section>
+
+      <!-- running -->
+      <section id="stateRun" hidden>
+        <div class="progress"><div class="fill" id="fill"></div></div>
+        <div class="run-line">
+          <span id="runText">Buch wird geöffnet …</span>
+          <span class="muted" id="runEta"></span>
+        </div>
+        <button class="btn secondary wide" id="cancelBtn">Abbrechen</button>
+      </section>
+
+      <!-- finished -->
+      <section id="stateDone" hidden>
+        <p class="done-text" id="doneText"></p>
+        <button class="btn primary wide" id="openBtn">PDF öffnen</button>
+        <button class="btn secondary wide" id="revealBtn">Im Finder zeigen</button>
+      </section>
+
+      <!-- failed -->
+      <section id="stateFail" hidden>
+        <p class="fail-text" id="failText"></p>
+        <button class="btn primary wide" id="againBtn">Nochmals versuchen</button>
+      </section>
+    </aside>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
