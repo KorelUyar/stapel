@@ -87,6 +87,21 @@ async function waitIdle({ min = 400, quiet = 600, max = 20000, token } = {}) {
   }
 }
 
+// Wait until an expression in the hidden window gives the same value for `quiet` ms.
+async function waitStable(expr, quiet, max) {
+  const start = Date.now();
+  let last = null;
+  let since = Date.now();
+  while (Date.now() - start < max) {
+    const v = await js(expr).catch(() => null);
+    if (v !== last) {
+      last = v;
+      since = Date.now();
+    } else if (Date.now() - since >= quiet) return;
+    await sleep(200);
+  }
+}
+
 async function open(hash) {
   const w = getWorker();
   inflight.clear();
@@ -122,7 +137,8 @@ async function status() {
     if (!library) throw new Error("offline");
     await sleep(3000);
   }
-  await sleep(300);
+  // The slot can hold a placeholder first. Decide only once it has stopped changing.
+  await waitStable(`document.querySelector('[data-anchor="lu-profile-settings"]')?.innerHTML ?? ''`, 2000, 12000);
   const loggedOut = await js(`!!document.querySelector('.lu-profile-settings__login')`);
   return { loggedIn: !loggedOut };
 }
@@ -143,6 +159,7 @@ function login(parent, lang) {
     let finished = false;
     let sawForm = false; // the password form was on screen
     let wentAway = false; // a single-sign-on page (Microsoft, Edulog, …) was open
+    let signedInChecks = 0;
     const finish = (ok) => {
       if (finished) return;
       finished = true;
@@ -183,7 +200,10 @@ function login(parent, lang) {
         }
         return;
       }
-      if (s.library && s.header && !s.loginButton) finish(true);
+      // Signed in = no Login button in a drawn header, three checks in a row (about 2 s),
+      // so a header that is still being drawn does not count.
+      signedInChecks = s.library && s.header && !s.loginButton ? signedInChecks + 1 : 0;
+      if (signedInChecks >= 3) finish(true);
     }, 700);
 
     win.loadURL(BASE + "#promo?popup=login");
