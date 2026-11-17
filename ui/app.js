@@ -338,8 +338,8 @@ $("cancelBtn").onclick = () => {
   $("runText").textContent = t("cancelling");
   window.app.cancel();
 };
-$("openBtn").onclick = () => window.app.openFile(state.result.path);
-$("revealBtn").onclick = () => window.app.reveal(state.result.path);
+$("openBtn").onclick = () => window.app.openPdf();
+$("revealBtn").onclick = () => window.app.revealPdf();
 $("closeSheet").onclick = closeSheet;
 $("scrim").onclick = closeSheet;
 document.addEventListener("keydown", (e) => {

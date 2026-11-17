@@ -7,29 +7,39 @@
 # Installing it this way skips the "cannot be opened" warning that macOS
 # shows for apps downloaded with a browser.
 
-set -e
+# Everything runs inside a function, so a download of this script that was cut off
+# halfway does nothing at all.
+install_stapel() {
+  set -e
+  local url="https://github.com/KorelUyar/stapel/releases/latest/download/Stapel-macOS.zip"
+  local tmp; tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
 
-url="https://github.com/KorelUyar/stapel/releases/latest/download/Stapel-macOS.zip"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+  echo "Downloading Stapel…"
+  curl -fL --progress-bar "$url" -o "$tmp/Stapel.zip"
+  ditto -x -k "$tmp/Stapel.zip" "$tmp"
+  if [ ! -d "$tmp/Stapel.app" ]; then
+    echo "The download does not contain Stapel.app." >&2
+    exit 1
+  fi
 
-echo "Downloading Stapel…"
-curl -fL --progress-bar "$url" -o "$tmp/Stapel.zip"
-ditto -x -k "$tmp/Stapel.zip" "$tmp"
+  local dest="/Applications"
+  [ -w "$dest" ] || dest="$HOME/Applications"
+  mkdir -p "$dest"
 
-if [ ! -d "$tmp/Stapel.app" ]; then
-  echo "The download does not contain Stapel.app." >&2
-  exit 1
-fi
+  # Copy next to the old version first; replace it only once the copy is complete.
+  rm -rf "$dest/Stapel.app.new"
+  ditto "$tmp/Stapel.app" "$dest/Stapel.app.new"
+  xattr -dr com.apple.quarantine "$dest/Stapel.app.new" 2>/dev/null || true
 
-dest="/Applications"
-[ -w "$dest" ] || dest="$HOME/Applications"
-mkdir -p "$dest"
+  osascript -e 'tell application "Stapel" to quit' >/dev/null 2>&1 || true
+  for i in {1..20}; do pgrep -xq Stapel || break; sleep 0.5; done
 
-osascript -e 'tell application "Stapel" to quit' >/dev/null 2>&1 || true
-rm -rf "$dest/Stapel.app"
-ditto "$tmp/Stapel.app" "$dest/Stapel.app"
-xattr -dr com.apple.quarantine "$dest/Stapel.app" 2>/dev/null || true
+  rm -rf "$dest/Stapel.app"
+  mv "$dest/Stapel.app.new" "$dest/Stapel.app"
 
-echo "Installed in $dest. Opening Stapel…"
-open "$dest/Stapel.app"
+  echo "Installed in $dest. Opening Stapel…"
+  open "$dest/Stapel.app"
+}
+
+install_stapel

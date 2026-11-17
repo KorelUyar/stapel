@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld("app", {
   settings: () => ipcRenderer.invoke("settings"),
   setLang: (lang) => ipcRenderer.invoke("set-lang", lang),
   chooseFolder: () => ipcRenderer.invoke("choose-folder"),
-  openFile: (p) => ipcRenderer.invoke("open-file", p),
-  reveal: (p) => ipcRenderer.invoke("reveal", p),
+  openPdf: () => ipcRenderer.invoke("open-pdf"),
+  revealPdf: () => ipcRenderer.invoke("reveal-pdf"),
   onProgress: (cb) => ipcRenderer.on("progress", (_e, p) => cb(p)),
 });

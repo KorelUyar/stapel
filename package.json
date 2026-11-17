@@ -39,6 +39,12 @@
       "category": "public.app-category.education",
       "icon": "build/icon.icns",
       "identity": null
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true
     }
   }
 }

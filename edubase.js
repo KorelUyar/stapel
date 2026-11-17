@@ -32,6 +32,10 @@ function getSession() {
     if (isWorker(d)) inflight.add(d.id);
     cb({});
   });
+  // edubase needs no camera, microphone, location or notifications.
+  const allowed = new Set(["fullscreen", "clipboard-sanitized-write"]);
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
+  ses.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
   const done = (d) => inflight.delete(d.id);
   ses.webRequest.onCompleted(done);
   ses.webRequest.onErrorOccurred(done);
@@ -47,14 +51,16 @@ function getWorker() {
     webPreferences: { session: getSession(), backgroundThrottling: false },
   });
   worker.webContents.setAudioMuted(true);
+  worker.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   return worker;
 }
 
 const js = (code) => getWorker().webContents.executeJavaScript(code, true);
 
-async function waitFor(check, timeout, every = 250) {
+async function waitFor(check, timeout, every = 250, token) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
+    if (token?.cancelled) throw new Error("cancelled");
     const v = await check();
     if (v) return v;
     await sleep(every);
@@ -63,10 +69,11 @@ async function waitFor(check, timeout, every = 250) {
 }
 
 // Wait until the hidden window has no open requests for a moment and every image is decoded.
-async function waitIdle({ min = 400, quiet = 600, max = 20000 } = {}) {
+async function waitIdle({ min = 400, quiet = 600, max = 20000, token } = {}) {
   const start = Date.now();
   let quietSince = null;
   while (Date.now() - start < max) {
+    if (token?.cancelled) throw new Error("cancelled");
     const imagesDone = await js(
       `[...document.images].every((i) => i.complete)`,
     ).catch(() => true);
@@ -124,7 +131,8 @@ function login(parent, lang) {
       webPreferences: { session: getSession() },
     });
     let finished = false;
-    let sawForm = false;
+    let sawForm = false; // the password form was on screen
+    let wentAway = false; // a single-sign-on page (Microsoft, Edulog, …) was open
     const finish = (ok) => {
       if (finished) return;
       finished = true;
@@ -134,12 +142,18 @@ function login(parent, lang) {
     };
     win.once("ready-to-show", () => win.show());
     win.on("closed", () => finish(false));
-    win.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
+    // Some sign-in providers open a popup. Allow those (https only), nothing else.
+    win.webContents.setWindowOpenHandler(({ url }) =>
+      url.startsWith("https://") ? { action: "allow" } : { action: "deny" },
+    );
 
     const timer = setInterval(async () => {
       if (win.isDestroyed()) return;
       const url = win.webContents.getURL();
-      if (!url.startsWith(BASE)) return; // somewhere in a single-sign-on flow
+      if (!url.startsWith(BASE)) {
+        wentAway = true; // somewhere in a single-sign-on flow
+        return;
+      }
       const s = await win.webContents
         .executeJavaScript(
           `({ hash: location.hash,
@@ -152,8 +166,8 @@ function login(parent, lang) {
       if (s.form) sawForm = true;
       if (s.hash.startsWith("#promo")) {
         // The login popup closed after the user submitted it: go see whether it worked.
-        if (sawForm && !s.form) {
-          sawForm = false;
+        if ((sawForm || wentAway) && !s.form) {
+          sawForm = wentAway = false;
           win.webContents.executeJavaScript(`location.hash = '#library'`).catch(() => {});
         }
         return;
@@ -175,9 +189,12 @@ async function logout() {
 // ---------------------------------------------------------------- library
 
 async function library() {
-  // status() has just loaded #library; make sure we are there.
-  const onLibrary = await js(`location.hash.startsWith('#library')`).catch(() => false);
-  if (!onLibrary) await open("#library");
+  // Always load it fresh: after signing in, or when the user asks to reload.
+  try {
+    await open("#library");
+  } catch {
+    throw new Error("offline");
+  }
   await waitFor(() => js(`document.querySelectorAll('.lu-library-item').length > 0`), 30000);
 
   // The list may render lazily: scroll until the number of items stops growing.
@@ -202,9 +219,13 @@ async function library() {
   // Covers come from edubase's server; fetch them with the signed-in session.
   await Promise.all(
     books.map(async (b) => {
-      if (!b.cover) return;
+      if (!/^https:\/\//.test(b.cover)) {
+        b.cover = "";
+        return;
+      }
       try {
         const res = await getSession().fetch(b.cover);
+        if (!res.ok) throw new Error(String(res.status));
         const buf = Buffer.from(await res.arrayBuffer());
         const type = buf[0] === 0x89 ? "image/png" : "image/jpeg";
         b.cover = `data:${type};base64,${buf.toString("base64")}`;
@@ -274,27 +295,36 @@ async function download(job, onProgress, token) {
     const opened = await waitFor(async () => {
       const p = await readPager();
       return p.total > 0 && p.page ? p : null;
-    }, 45000);
+    }, 45000, 250, token);
     if (!opened) {
       throw new Error("noaccess");
     }
 
     const title = job.title || (await js(`document.title`));
+    if (from > opened.total) throw new Error("range");
     const last = Math.min(job.to || opened.total, opened.total);
     const count = Math.max(1, last - from + 1);
     const started = Date.now();
 
-    await waitIdle({ min: 1500, quiet: 900, max: 30000 });
+    await waitIdle({ min: 1500, quiet: 900, max: 30000, token });
 
     for (let i = 0; i < count; i++) {
       if (token.cancelled) throw new Error("cancelled");
 
       if (i > 0) {
-        const before = (await readPager()).page;
-        await js(`document.querySelector('[data-action=footer-next-page]')?.click()`);
-        const moved = await waitFor(async () => (await readPager()).page !== before, 15000, 150);
-        if (!moved) break; // end of the book
-        await waitIdle();
+        const before = await readPager();
+        let moved = null;
+        for (let attempt = 0; attempt < 3 && !moved; attempt++) {
+          await js(`document.querySelector('[data-action=footer-next-page]')?.click()`);
+          moved = await waitFor(async () => (await readPager()).page !== before.page, 20000, 150, token);
+        }
+        if (!moved) {
+          // The last page of the book: done. Anywhere else edubase stopped answering, and a
+          // PDF with pages missing must not look finished.
+          if (String(before.total) === String(before.page)) break;
+          throw new Error("stalled");
+        }
+        await waitIdle({ token });
       }
 
       const pdf = await getWorker().webContents.printToPDF({

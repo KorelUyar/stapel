@@ -7,6 +7,7 @@ const EDUBASE = "https://app.edubase.ch/";
 
 let win;
 let job = null; // { token } while a PDF is being saved
+let lastPdf = null; // the PDF saved last; the only file "Open" and "Show in Finder" act on
 
 // ---------------------------------------------------------------- settings
 
@@ -51,6 +52,8 @@ function createWindow() {
     },
   });
   win.once("ready-to-show", () => win.show());
+  // One window app: closing it quits (the hidden edubase window must not keep it alive).
+  win.on("closed", () => app.quit());
   win.loadFile(path.join(__dirname, "ui", "index.html"));
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) shell.openExternal(url);
@@ -76,6 +79,14 @@ app.on("web-contents-created", (_e, contents) => {
       if (url.startsWith("https://")) shell.openExternal(url);
       return { action: "deny" };
     });
+    // The reader has no address bar, so it stays on edubase. Links elsewhere open in the browser.
+    const keepOnEdubase = (e, url, isMainFrame) => {
+      if (isMainFrame === false || url.startsWith(EDUBASE) || url === "about:blank") return;
+      e.preventDefault();
+      if (url.startsWith("https://")) shell.openExternal(url);
+    };
+    contents.on("will-navigate", (e) => keepOnEdubase(e, e.url, e.isMainFrame));
+    contents.on("will-redirect", (e) => keepOnEdubase(e, e.url, e.isMainFrame));
   }
 });
 
@@ -83,7 +94,7 @@ app.whenReady().then(() => {
   edubase.init();
   createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!win || win.isDestroyed()) createWindow();
   });
 });
 
@@ -128,7 +139,9 @@ ipcMain.handle(
     job = { token: { cancelled: false } };
     try {
       const send = (p) => win && !win.isDestroyed() && win.webContents.send("progress", p);
-      return await edubase.download({ ...book, outputDir: outputDir() }, send, job.token);
+      const result = await edubase.download({ ...book, outputDir: outputDir() }, send, job.token);
+      lastPdf = result.path;
+      return result;
     } finally {
       job = null;
     }
@@ -158,5 +171,5 @@ ipcMain.handle("choose-folder", async () => {
   return r.filePaths[0];
 });
 
-ipcMain.handle("open-file", (_e, p) => shell.openPath(String(p)));
-ipcMain.handle("reveal", (_e, p) => shell.showItemInFolder(String(p)));
+ipcMain.handle("open-pdf", () => lastPdf && shell.openPath(lastPdf));
+ipcMain.handle("reveal-pdf", () => lastPdf && shell.showItemInFolder(lastPdf));
