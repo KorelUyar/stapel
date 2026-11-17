@@ -89,13 +89,22 @@ async function open(hash) {
 
 // ---------------------------------------------------------------- session
 
+// Called once at start, so the reader <webview> uses the same session settings.
+function init() {
+  getSession();
+}
+
 async function status() {
-  await open("#library");
+  try {
+    await open("#library");
+  } catch {
+    throw new Error("offline");
+  }
   const ready = await waitFor(
     () => js(`!!document.querySelector('.lu-library-item, .lu-profile-settings__login')`),
     30000,
   );
-  if (!ready) throw new Error("Edubase antwortet nicht. Bist du online?");
+  if (!ready) throw new Error("offline");
   await sleep(600);
   const loggedOut = await js(`!!document.querySelector('.lu-profile-settings__login')`);
   return { loggedIn: !loggedOut };
@@ -103,7 +112,7 @@ async function status() {
 
 // Shows edubase's own login (email, Office 365, Edulog, Google, Apple, …) and resolves
 // true once the user is signed in, false if they close the window.
-function login(parent) {
+function login(parent, lang) {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       parent,
@@ -111,7 +120,7 @@ function login(parent) {
       width: 520,
       height: 720,
       show: false,
-      title: "Bei Edubase anmelden",
+      title: lang === "de" ? "Mit Edubase anmelden" : "Sign in with Edubase",
       webPreferences: { session: getSession() },
     });
     let finished = false;
@@ -235,8 +244,11 @@ async function preview() {
       const b = el.getBoundingClientRect();
       return { x: Math.max(0, b.x), y: Math.max(0, b.y), width: Math.min(innerWidth, b.width), height: Math.min(innerHeight, b.height) };
     })()`);
+    // Zoom in the reader (⌘+) applies to every edubase page of the session, this one too:
+    // the page measures in CSS pixels, the capture wants window points.
+    const z = getWorker().webContents.getZoomFactor();
     const rect = r.width > 50 && r.height > 50 ? {
-      x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height),
+      x: Math.round(r.x * z), y: Math.round(r.y * z), width: Math.round(r.width * z), height: Math.round(r.height * z),
     } : undefined;
     const img = await getWorker().webContents.capturePage(rect);
     return img.resize({ width: 420 }).toDataURL();
@@ -264,7 +276,7 @@ async function download(job, onProgress, token) {
       return p.total > 0 && p.page ? p : null;
     }, 45000);
     if (!opened) {
-      throw new Error("Das Buch liess sich nicht öffnen. Hast du Zugriff darauf?");
+      throw new Error("noaccess");
     }
 
     const title = job.title || (await js(`document.title`));
@@ -306,7 +318,7 @@ async function download(job, onProgress, token) {
     onProgress({ phase: "merge", current: files.length, total: count });
     const merged = await PDFDocument.create();
     merged.setTitle(title);
-    merged.setProducer("Edubase Downloader");
+    merged.setProducer("Stapel");
     for (const file of files) {
       const doc = await PDFDocument.load(fs.readFileSync(file));
       for (const p of await merged.copyPages(doc, doc.getPageIndices())) merged.addPage(p);
@@ -322,4 +334,4 @@ async function download(job, onProgress, token) {
   }
 }
 
-module.exports = { status, login, logout, library, download };
+module.exports = { init, status, login, logout, library, download };

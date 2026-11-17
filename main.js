@@ -3,8 +3,10 @@ const fs = require("fs");
 const path = require("path");
 const edubase = require("./edubase");
 
+const EDUBASE = "https://app.edubase.ch/";
+
 let win;
-let job = null; // { token } while a download runs
+let job = null; // { token } while a PDF is being saved
 
 // ---------------------------------------------------------------- settings
 
@@ -31,20 +33,21 @@ const outputDir = () => readSettings().outputDir || app.getPath("downloads");
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1040,
-    height: 720,
+    width: 1120,
+    height: 780,
     minWidth: 760,
     minHeight: 560,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 20 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1b1a19" : "#f5f3ef",
-    title: "Edubase Downloader",
+    title: "Stapel",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
   });
   win.once("ready-to-show", () => win.show());
@@ -53,9 +56,31 @@ function createWindow() {
     if (url.startsWith("https://")) shell.openExternal(url);
     return { action: "deny" };
   });
+  // The page itself never navigates away from the app's own files.
+  win.webContents.on("will-navigate", (e) => e.preventDefault());
 }
 
+// The reader is a <webview> showing edubase. Lock it down: edubase only, the app's own
+// session, no preload, no Node.
+app.on("web-contents-created", (_e, contents) => {
+  contents.on("will-attach-webview", (e, prefs, params) => {
+    delete prefs.preload;
+    prefs.nodeIntegration = false;
+    prefs.contextIsolation = true;
+    prefs.sandbox = true;
+    if (params.partition !== "persist:edubase") e.preventDefault();
+    if (params.src !== "about:blank" && !params.src.startsWith(EDUBASE)) e.preventDefault();
+  });
+  if (contents.getType() === "webview") {
+    contents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith("https://")) shell.openExternal(url);
+      return { action: "deny" };
+    });
+  }
+});
+
 app.whenReady().then(() => {
+  edubase.init();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -75,14 +100,31 @@ const wrap = (fn) => async (_e, ...args) => {
 };
 
 ipcMain.handle("status", wrap(() => edubase.status()));
-ipcMain.handle("login", wrap(() => edubase.login(win)));
+ipcMain.handle("login", wrap(() => edubase.login(win, readSettings().lang)));
 ipcMain.handle("logout", wrap(() => edubase.logout()));
-ipcMain.handle("library", wrap(() => edubase.library()));
+
+ipcMain.handle(
+  "library",
+  wrap(async () => {
+    const recent = readSettings().recent || {};
+    const books = await edubase.library();
+    // Most recently opened first, the rest in edubase's order.
+    return books
+      .map((b, i) => ({ ...b, i, seen: recent[b.id] || 0 }))
+      .sort((a, b) => b.seen - a.seen || a.i - b.i);
+  }),
+);
+
+ipcMain.handle("opened", (_e, id) => {
+  const recent = readSettings().recent || {};
+  recent[String(id)] = Date.now();
+  writeSettings({ recent });
+});
 
 ipcMain.handle(
   "download",
   wrap(async (book) => {
-    if (job) throw new Error("Es läuft schon ein Download.");
+    if (job) throw new Error("busy");
     job = { token: { cancelled: false } };
     try {
       const send = (p) => win && !win.isDestroyed() && win.webContents.send("progress", p);
@@ -97,18 +139,24 @@ ipcMain.handle("cancel", () => {
   if (job) job.token.cancelled = true;
 });
 
-ipcMain.handle("settings", () => ({ outputDir: outputDir(), downloads: app.getPath("downloads") }));
+ipcMain.handle("settings", () => {
+  const s = readSettings();
+  return { outputDir: outputDir(), downloads: app.getPath("downloads"), lang: s.lang || "en" };
+});
+
+ipcMain.handle("set-lang", (_e, lang) => {
+  writeSettings({ lang: lang === "de" ? "de" : "en" });
+});
 
 ipcMain.handle("choose-folder", async () => {
   const r = await dialog.showOpenDialog(win, {
     properties: ["openDirectory", "createDirectory"],
     defaultPath: outputDir(),
-    buttonLabel: "Hier speichern",
   });
   if (r.canceled) return outputDir();
   writeSettings({ outputDir: r.filePaths[0] });
   return r.filePaths[0];
 });
 
-ipcMain.handle("open-file", (_e, p) => shell.openPath(p));
-ipcMain.handle("reveal", (_e, p) => shell.showItemInFolder(p));
+ipcMain.handle("open-file", (_e, p) => shell.openPath(String(p)));
+ipcMain.handle("reveal", (_e, p) => shell.showItemInFolder(String(p)));

@@ -1,13 +1,14 @@
 {
-  "name": "edubase-downloader",
-  "version": "2.0.0",
-  "description": "Saves your Edubase books as PDF (desktop app)",
+  "name": "stapel",
+  "version": "1.0.0",
+  "description": "Your Edubase school books in their own window, with PDF export",
   "main": "main.js",
   "author": "Korel Uyar",
   "license": "GPL-3.0",
+  "homepage": "https://github.com/KorelUyar/stapel",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder && node scripts/sign-and-zip.js"
   },
   "dependencies": {
     "pdf-lib": "1.17.1"
@@ -17,8 +18,8 @@
     "electron-builder": "26.15.3"
   },
   "build": {
-    "appId": "ch.edubase.downloader",
-    "productName": "Edubase Downloader",
+    "appId": "com.koreluyar.stapel",
+    "productName": "Stapel",
     "files": [
       "main.js",
       "preload.js",
@@ -27,7 +28,14 @@
       "package.json"
     ],
     "mac": {
-      "target": "dir",
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
       "category": "public.app-category.education",
       "icon": "build/icon.icns",
       "identity": null
