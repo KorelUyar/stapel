@@ -96,6 +96,14 @@ async function open(hash) {
 
 // ---------------------------------------------------------------- session
 
+// The header slot top right is empty until edubase has drawn it; then it holds either the
+// Login button or the signed-in profile. Only then does "no Login button" mean signed in
+// (the library can appear first on a slow machine).
+const HEADER_READY = `(() => {
+  const slot = document.querySelector('[data-anchor="lu-profile-settings"]');
+  return (!!slot && slot.children.length > 0) || !!document.querySelector('.lu-profile-settings__login');
+})()`;
+
 // Called once at start, so the reader <webview> uses the same session settings.
 function init() {
   getSession();
@@ -107,12 +115,14 @@ async function status() {
   } catch {
     throw new Error("offline");
   }
-  const ready = await waitFor(
-    () => js(`!!document.querySelector('.lu-library-item, .lu-profile-settings__login')`),
-    30000,
-  );
-  if (!ready) throw new Error("offline");
-  await sleep(600);
+  const ready = await waitFor(() => js(HEADER_READY), 30000);
+  if (!ready) {
+    // edubase may have renamed the header; fall back to "the library is there".
+    const library = await waitFor(() => js(`!!document.querySelector('.lu-library-item')`), 15000);
+    if (!library) throw new Error("offline");
+    await sleep(3000);
+  }
+  await sleep(300);
   const loggedOut = await js(`!!document.querySelector('.lu-profile-settings__login')`);
   return { loggedIn: !loggedOut };
 }
@@ -159,6 +169,7 @@ function login(parent, lang) {
           `({ hash: location.hash,
               form: [...document.querySelectorAll('input[type=password]')].some((i) => i.offsetParent),
               loginButton: !!document.querySelector('.lu-profile-settings__login'),
+              header: ${HEADER_READY},
               library: !!document.querySelector('.lu-library-item, .lu-doc-pages') })`,
         )
         .catch(() => null);
@@ -172,7 +183,7 @@ function login(parent, lang) {
         }
         return;
       }
-      if (s.library && !s.loginButton) finish(true);
+      if (s.library && s.header && !s.loginButton) finish(true);
     }, 700);
 
     win.loadURL(BASE + "#promo?popup=login");
