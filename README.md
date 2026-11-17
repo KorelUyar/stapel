@@ -1,6 +1,6 @@
 # Stapel
 
-Your Edubase school books in their own window on the Mac, and as a PDF when you need them offline.
+Your Edubase school books in their own window on Mac and Windows, and as a PDF when you need them offline.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/library-dark.webp">
@@ -31,6 +31,8 @@ The library picture uses sample covers. The others show Edubase's free user manu
 
 ## Install
 
+**Mac** (macOS 12 or later, Apple Silicon or Intel):
+
 ```sh
 curl -fsSL https://github.com/KorelUyar/stapel/releases/latest/download/install.sh | zsh
 ```
@@ -39,8 +41,12 @@ This downloads the latest version, puts it in Applications and opens it. Stapel 
 notarised by Apple, so a copy downloaded with a browser needs one confirmation under
 System Settings, Privacy & Security, Open Anyway.
 
-Needs macOS 12 or later (Apple Silicon or Intel) and an Edubase account. Without an account
-you can look at Edubase's free books.
+**Windows** (10 and 11): download `Stapel-Windows-Setup.exe` from the
+[latest release](https://github.com/KorelUyar/stapel/releases/latest) and run it. Windows shows
+“Windows protected your PC” because the installer is not signed: choose More info, then Run
+anyway. Stapel installs for your user only, no administrator needed.
+
+You need an Edubase account. Without one you can look at Edubase's free books.
 
 ## Please note
 
@@ -63,9 +69,14 @@ with `pdf-lib`.
 ```sh
 npm install
 npm start            # run from source
-npm run dist         # dist/mac-universal/Stapel.app and dist/Stapel-macOS.zip
+npm run dist         # Mac: dist/mac-universal/Stapel.app and dist/Stapel-macOS.zip
+npm run dist:win     # Windows: dist/Stapel-Windows-Setup.exe (run on Windows)
+node_modules/.bin/electron scripts/smoke.js <dir>              # end-to-end check, no account needed
 node_modules/.bin/electron scripts/shots.js <dir> light|dark   # the pictures above
 ```
+
+Every push builds the Windows installer on GitHub Actions and runs the end-to-end check there,
+against the source and the packaged app, then installs it silently and starts it.
 
 Edubase can change its website at any time. Everything Stapel relies on is in `edubase.js`
 (`.lu-library-item`, `.lu-profile-settings__login`, `[data-item=page-settings]`,
