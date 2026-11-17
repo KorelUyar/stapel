@@ -1,14 +1,15 @@
 {
   "name": "stapel",
-  "version": "1.0.0",
-  "description": "Your Edubase school books in their own window, with PDF export",
+  "version": "1.1.0",
+  "description": "Your Edubase school books in their own window, with PDF export (macOS and Windows)",
   "main": "main.js",
   "author": "Korel Uyar",
   "license": "GPL-3.0",
   "homepage": "https://github.com/KorelUyar/stapel",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder && node scripts/sign-and-zip.js"
+    "dist": "electron-builder --mac && node scripts/sign-and-zip.js",
+    "dist:win": "electron-builder --win"
   },
   "dependencies": {
     "pdf-lib": "1.17.1"
@@ -45,6 +46,26 @@
       "enableNodeOptionsEnvironmentVariable": false,
       "enableNodeCliInspectArguments": false,
       "onlyLoadAppFromAsar": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "Stapel-Windows-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Stapel",
+      "deleteAppDataOnUninstall": false
     }
   }
 }

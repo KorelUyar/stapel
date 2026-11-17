@@ -13,7 +13,7 @@
   --green: #1f6e59;
   --mustard: #e3a92b;
   --coral: #e0654a;
-  --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
+  --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   color-scheme: light;
 }
 
@@ -45,7 +45,7 @@ body {
 }
 
 body {
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--ink);
   overflow: hidden;
@@ -856,4 +856,18 @@ input:focus {
   overflow: hidden;
   background: #fff;
   box-shadow: 0 0 0 1px var(--line);
+}
+
+/* ------------------------------------------------------------ Windows */
+
+/* No traffic lights on the left; minimise, maximise and close sit on the right instead. */
+.win .bar {
+  padding-left: 18px;
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 150px)) + 12px);
+}
+.win .welcome h1,
+.win .lib-head h2,
+.win .sheet h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }

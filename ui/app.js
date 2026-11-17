@@ -261,8 +261,10 @@ window.app.onProgress((p) => {
 
 // ------------------------------------------------------------ helpers
 
-const fileName = (p) => p.split("/").pop();
-const folderLabel = (p) => p.split("/").filter(Boolean).pop() || p;
+const fileName = (p) => p.split(/[\\/]/).pop();
+const folderLabel = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
+
+if (window.app.platform === "win32") document.documentElement.classList.add("win");
 
 async function refreshFolder() {
   const { outputDir, downloads } = await window.app.settings();

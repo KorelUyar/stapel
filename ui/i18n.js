@@ -1,4 +1,6 @@
 // All interface text. English first; German is a choice in the title bar.
+const IS_WIN = window.app?.platform === "win32";
+const PASTE = IS_WIN ? "Ctrl+V" : "⌘V";
 const STRINGS = {
   en: {
     connecting: "Connecting to Edubase …",
@@ -17,7 +19,7 @@ const STRINGS = {
     signInShort: "Sign in",
     signOut: "Sign out",
     noBooks: "No books found.",
-    pasteHint: "Tip: paste an Edubase link (⌘V) to open that book.",
+    pasteHint: `Tip: paste an Edubase link (${PASTE}) to open that book.`,
     books: (n) => (n === 1 ? "1 book" : `${n} books`),
     read: "Read",
     back: "Library",
@@ -40,7 +42,7 @@ const STRINGS = {
     cancelled: "Cancelled.",
     saved: (n, f) => `${n} ${n === 1 ? "page" : "pages"} saved as “${f}”.`,
     openPdf: "Open PDF",
-    reveal: "Show in Finder",
+    reveal: IS_WIN ? "Show in Explorer" : "Show in Finder",
     folderTitle: (p) => `Saves to ${p}. Click to change.`,
     rangeError: "The last page must come after the first.",
     "err.offline": "Edubase does not answer. Are you online?",
@@ -68,7 +70,7 @@ const STRINGS = {
     signInShort: "Anmelden",
     signOut: "Abmelden",
     noBooks: "Keine Bücher gefunden.",
-    pasteHint: "Tipp: Füge einen Edubase-Link ein (⌘V), um das Buch zu öffnen.",
+    pasteHint: `Tipp: Füge einen Edubase-Link ein (${PASTE}), um das Buch zu öffnen.`,
     books: (n) => (n === 1 ? "1 Buch" : `${n} Bücher`),
     read: "Lesen",
     back: "Bibliothek",
@@ -91,7 +93,7 @@ const STRINGS = {
     cancelled: "Abgebrochen.",
     saved: (n, f) => `${n} ${n === 1 ? "Seite" : "Seiten"} gespeichert als «${f}».`,
     openPdf: "PDF öffnen",
-    reveal: "Im Finder zeigen",
+    reveal: IS_WIN ? "Im Explorer zeigen" : "Im Finder zeigen",
     folderTitle: (p) => `Speichert in ${p}. Klicken zum Ändern.`,
     rangeError: "Die Endseite muss nach der Startseite kommen.",
     "err.offline": "Edubase antwortet nicht. Bist du online?",

@@ -7,6 +7,7 @@ const call = async (channel, ...args) => {
 };
 
 contextBridge.exposeInMainWorld("app", {
+  platform: process.platform,
   status: () => call("status"),
   login: () => call("login"),
   logout: () => call("logout"),

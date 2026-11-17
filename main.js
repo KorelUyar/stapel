@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const edubase = require("./edubase");
@@ -30,6 +30,12 @@ function writeSettings(patch) {
 
 const outputDir = () => readSettings().outputDir || app.getPath("downloads");
 
+const isMac = process.platform === "darwin";
+const colors = () =>
+  nativeTheme.shouldUseDarkColors
+    ? { background: "#1b1a19", symbols: "#f1eee8" }
+    : { background: "#f5f3ef", symbols: "#1d1c1a" };
+
 // ---------------------------------------------------------------- window
 
 function createWindow() {
@@ -38,9 +44,13 @@ function createWindow() {
     height: 780,
     minWidth: 760,
     minHeight: 560,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 18, y: 20 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#1b1a19" : "#f5f3ef",
+    // macOS: the traffic lights sit in the app's own title bar. Windows: the app draws the
+    // bar too, and the system adds minimise, maximise and close on the right.
+    titleBarStyle: isMac ? "hiddenInset" : "hidden",
+    ...(isMac
+      ? { trafficLightPosition: { x: 18, y: 20 } }
+      : { titleBarOverlay: { color: colors().background, symbolColor: colors().symbols, height: 60 } }),
+    backgroundColor: colors().background,
     title: "Stapel",
     show: false,
     webPreferences: {
@@ -52,6 +62,15 @@ function createWindow() {
     },
   });
   win.once("ready-to-show", () => win.show());
+  if (!isMac) {
+    nativeTheme.on("updated", () => {
+      if (win && !win.isDestroyed()) {
+        const c = colors();
+        win.setTitleBarOverlay({ color: c.background, symbolColor: c.symbols, height: 60 });
+        win.setBackgroundColor(c.background);
+      }
+    });
+  }
   // One window app: closing it quits (the hidden edubase window must not keep it alive).
   win.on("closed", () => app.quit());
   win.loadFile(path.join(__dirname, "ui", "index.html"));
@@ -91,6 +110,8 @@ app.on("web-contents-created", (_e, contents) => {
 });
 
 app.whenReady().then(() => {
+  // Windows and Linux get no menu bar; copy, paste and the rest work without it there.
+  if (!isMac) Menu.setApplicationMenu(null);
   edubase.init();
   createWindow();
   app.on("activate", () => {

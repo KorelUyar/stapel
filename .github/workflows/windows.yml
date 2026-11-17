@@ -1,0 +1,75 @@
+name: Windows
+
+# Builds the Windows installer on a real Windows machine and proves it works: the end-to-end
+# check (scripts/smoke.js) against the source and against the packaged app, then a silent
+# install and a screenshot of the installed app. The installer is kept as an artifact; the
+# release is made by hand from it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: End-to-end check (source)
+        run: npx electron scripts/smoke.js smoke/source
+
+      - name: Build the installer
+        run: npx electron-builder --win --publish never
+
+      - name: End-to-end check (packaged app code)
+        run: npx electron scripts/smoke.js smoke/packaged dist/win-unpacked/resources/app.asar
+
+      - name: Install silently, start, screenshot
+        shell: pwsh
+        run: |
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { Write-Host "resolution unchanged" }
+          Start-Process -FilePath dist/Stapel-Windows-Setup.exe -ArgumentList "/S" -Wait
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\Stapel\Stapel.exe"
+          if (-not (Test-Path $exe)) { throw "Stapel.exe was not installed at $exe" }
+          Write-Host "installed:" $exe
+          $app = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 25
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          $bmp.Save("smoke/installed-app.png")
+          $running = -not $app.HasExited
+          Write-Host "installed app still running after 25 s:" $running
+          Get-Process Stapel -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not $running) { throw "the installed app did not stay open" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stapel-Windows-Setup
+          path: dist/Stapel-Windows-Setup.exe
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-windows
+          path: smoke/
