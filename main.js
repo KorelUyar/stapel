@@ -186,6 +186,7 @@ app.whenReady().then(() => {
   if (app.isPackaged && update.supported()) {
     setTimeout(lookForUpdate, 5000);
     setInterval(lookForUpdate, 6 * 60 * 60 * 1000).unref();
+    setTimeout(() => !updating && update.cleanUp(app.getPath("temp")), 45000).unref();
   }
   app.on("activate", () => {
     if (!win || win.isDestroyed()) createWindow();
@@ -404,8 +405,10 @@ async function lookForUpdate() {
   try {
     const latest = await update.latestVersion();
     newVersion = update.newer(latest, app.getVersion()) ? { latest, current: app.getVersion() } : null;
-  } catch {}
-  if (newVersion && !updating) sendUpdate({ available: true, ...newVersion });
+  } catch {
+    return newVersion;
+  }
+  if (!updating) sendUpdate(newVersion ? { available: true, ...newVersion } : { available: false });
   return newVersion;
 }
 
@@ -419,12 +422,14 @@ ipcMain.handle(
     if (!newVersion) throw new Error("download");
     if (job) throw new Error("busy");
     if (updating) return;
+    update.ready(); // before 200 MB are downloaded for nothing
     updating = { token: { cancelled: false } };
     const { latest } = newVersion;
     try {
       const file = await update.download(latest, (part) => sendUpdate({ phase: "download", part }), updating.token);
       sendUpdate({ phase: "install" });
-      await reader.cmd("tool", {}); // text that is being written on a page is kept
+      // Text that is being written on a page is kept (a page that does not answer is not waited for).
+      await Promise.race([reader.cmd("tool", {}), new Promise((done) => setTimeout(done, 1500))]);
       flushProgress();
       await update.install(file, latest);
       sendUpdate({ phase: "restart" });

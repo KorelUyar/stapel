@@ -51,6 +51,7 @@ async function startUpdate() {
 
 function onUpdate(data) {
   if (data.available) Object.assign(up, { latest: data.latest, current: data.current });
+  if (data.available === false && !up.phase) up.latest = null; // the release was taken back
   if (data.busy) up.phase = "download";
   if (data.phase) Object.assign(up, { phase: data.phase, part: data.part ?? up.part });
   renderUpdate();
