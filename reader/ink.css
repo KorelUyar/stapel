@@ -1,0 +1,62 @@
+/* The user's own notes on a page. Used in the reader and when a PDF is saved with notes. */
+.stapel-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  overflow: hidden;
+}
+.stapel-ink {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.stapel-ink path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.stapel-ink .stapel-hl path {
+  stroke-opacity: 0.42;
+  mix-blend-mode: multiply;
+}
+.stapel-ink foreignObject {
+  overflow: visible;
+  pointer-events: none;
+}
+.stapel-text {
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 12px;
+  min-height: 1.25em;
+  padding: 1px 3px;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+  border-radius: 3px;
+  outline: none;
+  user-select: none;
+}
+
+@media print {
+  .doc-page .stapel-layer,
+  .doc-page .stapel-layer svg,
+  .doc-page .stapel-layer g,
+  .doc-page .stapel-layer path,
+  .doc-page .stapel-layer foreignObject {
+    display: block !important;
+  }
+  .doc-page .stapel-layer .stapel-text {
+    display: inline-block !important;
+    padding: 1px 3px !important;
+  }
+  .doc-page .stapel-layer {
+    z-index: 60 !important;
+  }
+}

@@ -13,19 +13,19 @@
     <header class="bar">
       <div class="bar-left">
         <button class="back" id="backBtn" hidden>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
+          <svg data-i="left"></svg>
           <span data-t="back"></span>
         </button>
         <div class="bar-title" id="barTitle">Stapel</div>
       </div>
       <div class="bar-actions">
         <button class="chip" id="folderBtn" hidden>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4.5a1 1 0 0 1 1-1h3.6l1.4 1.5h6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" /></svg>
+          <svg data-i="folder"></svg>
           <span id="folderName"></span>
         </button>
         <button class="chip ghost" id="logoutBtn" data-t="signOut" hidden></button>
         <button class="btn primary small" id="pdfBtn" hidden>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" /></svg>
+          <svg data-i="download"></svg>
           <span data-t="savePdf"></span>
         </button>
         <div class="lang" id="langSwitch" role="radiogroup" aria-label="Language">
@@ -61,39 +61,128 @@
     <!-- 3 · library -->
     <main class="screen" id="library" hidden>
       <div class="lib-head">
-        <div>
-          <h2 data-t="library"></h2>
+        <div class="lib-title">
+          <button class="crumb" id="crumbRoot" hidden>
+            <svg data-i="left"></svg>
+            <span data-t="library"></span>
+          </button>
+          <div class="lib-name">
+            <span class="folder-dot" id="folderDot" hidden></span>
+            <h2 id="libTitle"></h2>
+            <button class="icon-btn quiet" id="folderEditBtn" data-t-title="editFolder" hidden><svg data-i="edit"></svg></button>
+          </div>
           <p class="muted" id="libCount"></p>
         </div>
         <div class="lib-tools">
           <input type="search" id="search" data-t-placeholder="search" autocomplete="off" spellcheck="false" />
-          <button class="icon-btn" id="reloadBtn" data-t-title="reload">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" /></svg>
-          </button>
+          <button class="icon-btn" id="sortBtn" data-t-title="sort"><svg data-i="sort"></svg></button>
+          <button class="icon-btn" id="reloadBtn" data-t-title="reload"><svg data-i="reload"></svg></button>
+          <button class="chip" id="newFolderBtn"><svg data-i="folderPlus"></svg><span data-t="newFolder"></span></button>
+          <button class="chip" id="selectBtn"><svg data-i="check"></svg><span data-t="select"></span></button>
         </div>
       </div>
       <div class="guest-note" id="guestNote" hidden>
         <span data-t="guestNote"></span>
         <button class="link" id="guestLoginBtn" data-t="signInShort"></button>
       </div>
+      <div class="folders" id="folders" hidden></div>
       <div class="grid" id="grid"></div>
-      <p class="empty muted" id="empty" data-t="noBooks" hidden></p>
-      <p class="paste-hint" data-t="pasteHint"></p>
+      <p class="empty muted" id="empty" hidden></p>
+      <p class="paste-hint" id="pasteHint" data-t="pasteHint"></p>
     </main>
 
-    <!-- 4 · reader: edubase's own reader, signed in with the app's session -->
+    <!-- selection bar: shown while books are being picked -->
+    <div class="selbar" id="selBar" hidden>
+      <span class="selbar-count" id="selCount"></span>
+      <button class="selbar-btn" id="selAllBtn"></button>
+      <span class="selbar-gap"></span>
+      <button class="selbar-btn" id="selMoveBtn"><svg data-i="folder"></svg><span data-t="moveTo"></span></button>
+      <button class="selbar-btn strong" id="selPdfBtn"><svg data-i="download"></svg><span data-t="savePdfs"></span></button>
+      <button class="selbar-btn" id="selDoneBtn" data-t="done"></button>
+    </div>
+
+    <!-- 4 · reader: edubase draws the page, everything around it is the app's -->
     <main class="screen reader" id="reader" hidden>
-      <webview id="view" partition="persist:edubase" src="about:blank"></webview>
+      <div class="rtools" id="readerTools">
+        <button class="tbtn" id="sideBtn" data-t-title="sidebar"><svg data-i="sidebar"></svg></button>
+        <span class="rsep"></span>
+        <div class="toolset" id="toolset" role="radiogroup">
+          <button class="tbtn on" data-tool="hand" data-t-title="toolHand"><svg data-i="cursor"></svg></button>
+          <button class="tbtn" data-tool="pen" data-t-title="toolPen"><svg data-i="pen"></svg></button>
+          <button class="tbtn" data-tool="hl" data-t-title="toolHl"><svg data-i="marker"></svg></button>
+          <button class="tbtn" data-tool="text" data-t-title="toolText"><svg data-i="text"></svg></button>
+          <button class="tbtn" data-tool="eraser" data-t-title="toolEraser"><svg data-i="eraser"></svg></button>
+        </div>
+        <div class="tool-options" id="toolOptions" hidden>
+          <div class="swatches" id="swatches"></div>
+          <div class="sizes" id="sizes"></div>
+        </div>
+        <span class="rsep" id="undoSep"></span>
+        <button class="tbtn" id="undoBtn" data-t-title="undo" disabled><svg data-i="undo"></svg></button>
+        <button class="tbtn" id="redoBtn" data-t-title="redo" disabled><svg data-i="redo"></svg></button>
+        <span class="rgap"></span>
+        <button class="tbtn" id="findBtn" data-t-title="find"><svg data-i="search"></svg></button>
+        <button class="tbtn" id="markBtn" data-t-title="bookmark"><svg data-i="bookmark"></svg></button>
+        <button class="tbtn" id="spreadBtn" data-t-title="twoPages"><svg data-i="spread"></svg></button>
+        <button class="tbtn" id="moreBtn" data-t-title="more"><svg data-i="more"></svg></button>
+      </div>
+
+      <div class="rclassic" id="classicBar">
+        <span data-t="classicNote"></span>
+        <button class="link" id="classicOffBtn" data-t="classicOff"></button>
+      </div>
+
+      <div class="rbody">
+        <aside class="rside" id="readerSide" hidden>
+          <div class="rtabs" id="readerTabs" role="tablist">
+            <button data-tab="toc" data-t="tabContents"></button>
+            <button data-tab="marks" data-t="tabBookmarks"></button>
+            <button data-tab="notes" data-t="tabNotes"></button>
+            <button data-tab="find" data-t="tabFind"></button>
+          </div>
+          <div class="rpanel" id="panelToc"></div>
+          <div class="rpanel" id="panelMarks" hidden></div>
+          <div class="rpanel" id="panelNotes" hidden></div>
+          <div class="rpanel" id="panelFind" hidden>
+            <form class="find-form" id="findForm">
+              <input type="search" id="findInput" data-t-placeholder="findPlaceholder" autocomplete="off" spellcheck="false" />
+            </form>
+            <p class="fine" id="findInfo"></p>
+            <div id="findList"></div>
+          </div>
+        </aside>
+
+        <div class="rpage">
+          <webview id="view" partition="persist:edubase" src="about:blank"></webview>
+          <div class="rcover" id="readerCover">
+            <div class="spinner" aria-hidden="true"></div>
+            <p class="muted" id="readerCoverText"></p>
+            <button class="btn secondary" id="readerRetryBtn" data-t="retry" hidden></button>
+          </div>
+        </div>
+      </div>
+
+      <footer class="rfoot" id="readerFoot">
+        <button class="tbtn" id="prevBtn" data-t-title="prevPage"><svg data-i="left"></svg></button>
+        <label class="page-box">
+          <input type="text" id="pageInput" inputmode="numeric" autocomplete="off" />
+          <span id="pageTotal"></span>
+        </label>
+        <button class="tbtn" id="nextBtn" data-t-title="nextPage"><svg data-i="right"></svg></button>
+        <input type="range" id="pageSlider" min="1" max="1" value="1" step="1" />
+        <button class="tbtn" id="zoomOutBtn" data-t-title="zoomOut"><svg data-i="minus"></svg></button>
+        <span class="zoom-text" id="zoomText"></span>
+        <button class="tbtn" id="zoomInBtn" data-t-title="zoomIn"><svg data-i="plus"></svg></button>
+        <button class="tbtn" id="fitBtn" data-t-title="fit"><svg data-i="fit"></svg></button>
+      </footer>
     </main>
 
-    <!-- PDF sheet -->
+    <!-- PDF sheet: one book, or several one after the other -->
     <div class="scrim" id="scrim" hidden></div>
     <aside class="sheet" id="sheet" hidden aria-modal="true" role="dialog">
-      <button class="close" id="closeSheet" data-t-title="close">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
-      </button>
+      <button class="close" id="closeSheet" data-t-title="close"><svg data-i="close"></svg></button>
 
-      <div class="sheet-cover">
+      <div class="sheet-cover" id="sheetCoverBox">
         <img id="sheetCover" alt="" />
         <img id="sheetPreview" class="preview" alt="" />
         <div class="done-badge" aria-hidden="true">
@@ -102,9 +191,10 @@
       </div>
 
       <h3 id="sheetTitle"></h3>
+      <div class="batch-list" id="batchList" hidden></div>
 
       <section id="stateIdle">
-        <div class="seg" role="radiogroup">
+        <div class="seg" id="rangeSeg" role="radiogroup">
           <button class="on" data-range="all" data-t="wholeBook"></button>
           <button data-range="part" data-t="somePages"></button>
         </div>
@@ -112,12 +202,15 @@
           <label><span data-t="from"></span> <input type="number" id="fromPage" min="1" value="1" /></label>
           <label><span data-t="to"></span> <input type="number" id="toPage" min="1" data-t-placeholder="end" /></label>
         </div>
+        <label class="opt" id="notesOpt" hidden><input type="checkbox" id="notesCheck" checked /><span data-t="withNotes"></span></label>
+        <label class="opt" id="byFolderOpt" hidden><input type="checkbox" id="byFolderCheck" checked /><span data-t="byFolder"></span></label>
         <button class="btn primary wide" id="startBtn" data-t="saveButton"></button>
         <p class="fine center-text" id="saveWhere"></p>
         <p class="fine center-text" data-t="licenceNote"></p>
       </section>
 
       <section id="stateRun" hidden>
+        <p class="run-book" id="runBook" hidden></p>
         <div class="progress"><div class="fill" id="fill"></div></div>
         <div class="run-line">
           <span id="runText"></span>
@@ -138,9 +231,17 @@
       </section>
     </aside>
 
+    <!-- small menus and the folder editor open here -->
+    <div class="pop" id="pop" hidden></div>
+
     <div class="toast" id="toast" hidden></div>
 
     <script src="i18n.js"></script>
+    <script src="icons.js"></script>
     <script src="app.js"></script>
+    <script src="library.js"></script>
+    <script src="reader.js"></script>
+    <script src="pdf.js"></script>
+    <script src="start.js"></script>
   </body>
 </html>

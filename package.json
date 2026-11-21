@@ -25,6 +25,9 @@
       "main.js",
       "preload.js",
       "edubase.js",
+      "reader.js",
+      "reader-preload.js",
+      "reader/**/*",
       "ui/**/*",
       "package.json"
     ],

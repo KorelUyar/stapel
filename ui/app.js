@@ -1,12 +1,21 @@
+// Shared by all parts of the interface: state, screens, small menus, helpers.
 const $ = (id) => document.getElementById(id);
 const EDUBASE = "https://app.edubase.ch/";
 
 const state = {
   loggedIn: false,
   books: [],
+  folders: [], // { id, name, color }
+  shelf: {}, // book id -> folder id
+  sort: "recent",
+  folderColors: [],
+  folder: null, // the folder being looked at
+  selecting: false,
+  selected: new Set(),
   screen: "boot",
   reading: null, // book open in the reader
   book: null, // book in the PDF sheet
+  batch: null, // several books in the PDF sheet
   running: false,
   result: null,
   range: "all",
@@ -14,6 +23,13 @@ const state = {
 };
 
 const errorText = (err) => (STRINGS.en["err." + err.message] ? t("err." + err.message) : err.message);
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
 // ------------------------------------------------------------ screens
 
@@ -27,14 +43,16 @@ function show(screen) {
   $("barTitle").classList.toggle("reading", reading);
   $("logoutBtn").hidden = !(screen === "library" && state.loggedIn);
   $("folderBtn").hidden = screen !== "library";
+  $("selBar").hidden = !(screen === "library" && state.selecting);
+  closePop();
 }
 
 function toast(text) {
-  const el = $("toast");
-  el.textContent = text;
-  el.hidden = false;
+  const node = $("toast");
+  node.textContent = text;
+  node.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (el.hidden = true), 3500);
+  toast.timer = setTimeout(() => (node.hidden = true), 3500);
 }
 
 function bootMessage(key) {
@@ -62,207 +80,84 @@ async function boot() {
   }
 }
 
-async function loadLibrary({ quiet = false } = {}) {
-  if (!quiet) {
-    show("boot");
-    bootMessage("loadingLibrary");
-  }
-  $("reloadBtn").classList.add("spin");
-  try {
-    state.books = await window.app.library();
-    $("guestNote").hidden = state.loggedIn;
-    show("library");
-    renderGrid();
-  } catch (err) {
-    if (quiet) toast(errorText(err));
-    else bootFail(err);
-  } finally {
-    $("reloadBtn").classList.remove("spin");
-  }
+// ------------------------------------------------------------ small menus
+
+// One popover at a time: a menu, or the folder editor. It closes on a click elsewhere.
+let popOwner = null;
+
+function openPop(anchor, build, { align = "left" } = {}) {
+  const pop = $("pop");
+  if (!pop.hidden && popOwner === anchor) return closePop();
+  pop.replaceChildren();
+  pop.className = "pop";
+  build(pop);
+  pop.hidden = false;
+  popOwner = anchor;
+  const a = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth;
+  const h = pop.offsetHeight;
+  let left = align === "right" ? a.right - w : a.left;
+  left = Math.max(8, Math.min(left, innerWidth - w - 8));
+  let top = a.bottom + 6;
+  if (top + h > innerHeight - 8) top = Math.max(8, a.top - h - 6);
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
 }
 
-// ------------------------------------------------------------ library grid
-
-const palette = ["#1f6e59", "#e3a92b", "#e0654a", "#3d5a80", "#8a5a44"];
-
-function renderGrid() {
-  const q = $("search").value.trim().toLowerCase();
-  const books = state.books.filter((b) => b.title.toLowerCase().includes(q));
-  const grid = $("grid");
-  grid.replaceChildren();
-
-  books.forEach((book, i) => {
-    const card = document.createElement("button");
-    card.className = "card";
-    card.style.animationDelay = `${Math.min(i, 12) * 30}ms`;
-
-    const cover = document.createElement("div");
-    cover.className = "cover";
-    cover.dataset.label = t("read");
-    if (book.cover) {
-      const img = document.createElement("img");
-      img.src = book.cover;
-      img.alt = "";
-      cover.append(img);
-    } else {
-      const ph = document.createElement("div");
-      ph.className = "no-cover";
-      ph.style.background = palette[i % palette.length];
-      ph.textContent = book.title;
-      cover.append(ph);
-    }
-
-    const title = document.createElement("div");
-    title.className = "card-title";
-    title.textContent = book.title;
-
-    card.append(cover, title);
-    card.addEventListener("click", () => openBook(book));
-    grid.append(card);
-  });
-
-  $("libCount").textContent = t("books", state.books.length);
-  $("empty").hidden = books.length > 0;
+function closePop() {
+  $("pop").hidden = true;
+  popOwner = null;
 }
 
-// ------------------------------------------------------------ reader
-
-const view = $("view");
-
-function openBook(book) {
-  state.reading = book;
-  window.app.opened(book.id);
-  show("reader");
-  view.src = `${EDUBASE}#doc/${book.id}`;
-}
-
-function closeBook() {
-  if (state.running) return;
-  closeSheet();
-  view.src = "about:blank";
-  state.reading = null;
-  show(state.books.length ? "library" : "welcome");
-  if (state.screen === "library") renderGrid(); // the language may have changed meanwhile
-}
-
-// The reader is edubase itself: the user can move to another book inside it. Keep track,
-// so "Save as PDF" always means the book on screen.
-view.addEventListener("did-navigate-in-page", (e) => {
-  // edubase's own "Library" button: go back to the app's library instead.
-  if (state.screen === "reader" && /#library/.test(e.url)) return closeBook();
-  const m = e.url.match(/#doc\/(\d+)/);
-  if (!m || !state.reading || m[1] === state.reading.id) return;
-  state.reading = state.books.find((b) => b.id === m[1]) || { id: m[1], title: "", cover: "" };
-  if (!state.reading.title) {
-    view.executeJavaScript("document.title").then((title) => {
-      if (state.reading && !state.reading.title) {
-        state.reading.title = title;
-        $("barTitle").textContent = title;
+// items: { label, icon?, dot?, checked?, danger?, onClick } | { head } | { sep: true }
+function openMenu(anchor, items, options) {
+  openPop(
+    anchor,
+    (pop) => {
+      pop.classList.add("menu");
+      for (const item of items) {
+        if (item.sep) {
+          pop.append(el("div", "menu-sep"));
+        } else if (item.head) {
+          pop.append(el("div", "menu-head", item.head));
+        } else {
+          const b = el("button", "menu-item" + (item.danger ? " danger" : ""));
+          if (item.dot) {
+            const dot = el("span", "menu-dot");
+            dot.style.background = item.dot;
+            b.append(dot);
+          } else if (item.icon) {
+            b.append(icon(item.icon));
+          } else {
+            b.append(el("span", "menu-nothing"));
+          }
+          b.append(el("span", "menu-label", item.label));
+          if (item.checked) b.append(icon("tick"));
+          b.onclick = () => {
+            closePop();
+            item.onClick();
+          };
+          pop.append(b);
+        }
       }
-    }).catch(() => {});
-  }
-  $("barTitle").textContent = state.reading.title;
+    },
+    options,
+  );
+}
+
+document.addEventListener("pointerdown", (e) => {
+  if ($("pop").hidden) return;
+  if (e.target.closest("#pop") || (popOwner && popOwner.contains(e.target))) return;
+  closePop();
 });
-
-// ------------------------------------------------------------ PDF sheet
-
-function sheetState(name) {
-  for (const s of ["Idle", "Run", "Done", "Fail"]) $("state" + s).hidden = s !== name;
-  $("sheet").classList.toggle("done", name === "Done");
-}
-
-async function openSheet(book) {
-  if (state.running) return;
-  state.book = book;
-  state.result = null;
-  $("sheetTitle").textContent = book.title || "";
-  $("sheetCover").src = book.cover || "";
-  $("sheetCover").hidden = !book.cover;
-  $("sheetPreview").classList.remove("show");
-  $("sheetPreview").removeAttribute("src");
-  $("fromPage").value = 1;
-  $("toPage").value = "";
-  setRange("all");
-  await refreshFolder();
-  sheetState("Idle");
-  $("scrim").hidden = false;
-  $("sheet").hidden = false;
-  $("startBtn").focus();
-}
-
-function closeSheet() {
-  if (state.running) return;
-  $("scrim").hidden = true;
-  $("sheet").hidden = true;
-}
-
-function setRange(r) {
-  state.range = r;
-  for (const b of document.querySelectorAll(".seg button")) b.classList.toggle("on", b.dataset.range === r);
-  $("rangeFields").hidden = r !== "part";
-}
-
-async function start() {
-  const book = { id: state.book.id, title: state.book.title };
-  if (state.range === "part") {
-    const from = parseInt($("fromPage").value, 10) || 1;
-    const to = parseInt($("toPage").value, 10) || undefined;
-    if (to && to < from) return toast(t("rangeError"));
-    book.from = from;
-    book.to = to;
-  }
-
-  state.running = true;
-  sheetState("Run");
-  $("runText").textContent = t("opening");
-  $("runEta").textContent = "";
-  $("fill").style.width = "0";
-  $("fill").classList.add("wait");
-  $("cancelBtn").disabled = false;
-
-  try {
-    state.result = await window.app.download(book);
-    $("doneText").textContent = t("saved", state.result.pages, fileName(state.result.path));
-    sheetState("Done");
-    if (state.book.cover) $("sheetPreview").classList.remove("show"); // back to the cover
-    $("openBtn").focus();
-  } catch (err) {
-    if (err.message === "cancelled") {
-      sheetState("Idle");
-      toast(t("cancelled"));
-    } else {
-      $("failText").textContent = errorText(err);
-      sheetState("Fail");
-    }
-  } finally {
-    state.running = false;
-  }
-}
-
-window.app.onProgress((p) => {
-  const fill = $("fill");
-  if (p.phase === "open") {
-    $("runText").textContent = t("opening");
-  } else if (p.phase === "pages") {
-    fill.classList.remove("wait");
-    fill.style.width = `${(p.current / p.total) * 100}%`;
-    $("runText").textContent = t("pageOf", p.current, p.total);
-    $("runEta").textContent = p.secondsLeft >= 5 ? t("left", p.secondsLeft) : "";
-    if (p.preview) {
-      $("sheetPreview").src = p.preview;
-      $("sheetPreview").classList.add("show");
-    }
-  } else if (p.phase === "merge") {
-    fill.style.width = "100%";
-    $("runText").textContent = t("merging");
-    $("runEta").textContent = "";
-  }
-});
+window.addEventListener("resize", closePop);
+window.addEventListener("blur", closePop);
 
 // ------------------------------------------------------------ helpers
 
 const fileName = (p) => p.split(/[\\/]/).pop();
 const folderLabel = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
+const IS_MAC = window.app.platform === "darwin";
 
 if (window.app.platform === "win32") document.documentElement.classList.add("win");
 
@@ -278,78 +173,10 @@ async function setLanguage(lang) {
   applyLanguage(lang);
   window.app.setLang(LANG);
   await refreshFolder();
-  if (state.screen === "library") renderGrid();
+  if (state.screen === "library") renderLibrary();
+  if (state.screen === "reader") renderReader();
   if (state.screen === "boot") {
     if (state.bootError) $("bootText").textContent = errorText(state.bootError);
     else $("bootText").textContent = t(state.loggedIn ? "loadingLibrary" : "connecting");
   }
 }
-
-// A pasted edubase link (…/#doc/12345/1) opens that book.
-document.addEventListener("paste", (e) => {
-  if (e.target instanceof HTMLInputElement) return;
-  const m = e.clipboardData.getData("text").match(/#doc\/(\d+)/);
-  if (!m) return;
-  e.preventDefault();
-  closeSheet();
-  openBook(state.books.find((b) => b.id === m[1]) || { id: m[1], title: "", cover: "" });
-});
-
-// ------------------------------------------------------------ wiring
-
-$("retryBtn").onclick = boot;
-
-$("loginBtn").onclick = $("guestLoginBtn").onclick = async () => {
-  try {
-    if (!(await window.app.login())) return;
-    state.loggedIn = true;
-    await loadLibrary();
-  } catch (err) {
-    toast(errorText(err));
-  }
-};
-
-$("guestBtn").onclick = () => loadLibrary();
-
-$("logoutBtn").onclick = async () => {
-  view.src = "about:blank";
-  await window.app.logout();
-  state.loggedIn = false;
-  state.books = [];
-  show("welcome");
-};
-
-$("reloadBtn").onclick = () => loadLibrary({ quiet: true });
-$("search").oninput = renderGrid;
-
-$("folderBtn").onclick = async () => {
-  await window.app.chooseFolder();
-  refreshFolder();
-};
-
-$("backBtn").onclick = closeBook;
-$("pdfBtn").onclick = () => state.reading && openSheet(state.reading);
-
-for (const b of document.querySelectorAll(".seg button")) b.onclick = () => setRange(b.dataset.range);
-for (const b of document.querySelectorAll("#langSwitch button")) b.onclick = () => setLanguage(b.dataset.lang);
-
-$("startBtn").onclick = start;
-$("againBtn").onclick = start;
-$("cancelBtn").onclick = () => {
-  $("cancelBtn").disabled = true;
-  $("runText").textContent = t("cancelling");
-  window.app.cancel();
-};
-$("openBtn").onclick = () => window.app.openPdf();
-$("revealBtn").onclick = () => window.app.revealPdf();
-$("closeSheet").onclick = closeSheet;
-$("scrim").onclick = closeSheet;
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeSheet();
-});
-
-window.app.settings().then(async ({ lang }) => {
-  applyLanguage(lang);
-  await refreshFolder();
-  boot();
-});

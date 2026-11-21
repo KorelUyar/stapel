@@ -311,13 +311,17 @@ async function preview() {
 
 /**
  * Save a book as one PDF.
- * @param {{id: string, title?: string, from?: number, to?: number, outputDir: string}} job
+ * @param {{id: string, title?: string, from?: number, to?: number, outputDir: string,
+ *          ink?: object, inkAssets?: {js: string, css: string}}} job
+ *   ink: the user's own notes per page (reader.js); they are drawn onto each page before it
+ *   is printed.
  * @param {(p: object) => void} onProgress
  * @param {{cancelled: boolean}} token  set cancelled = true to stop
  */
 async function download(job, onProgress, token) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "edubase-"));
   const files = [];
+  let wasDouble = false;
   try {
     onProgress({ phase: "open" });
     const from = job.from && job.from > 1 ? job.from : 1;
@@ -331,8 +335,28 @@ async function download(job, onProgress, token) {
       throw new Error("noaccess");
     }
 
-    const title = job.title || (await js(`document.title`));
+    const title = job.title || (await js(`document.querySelector('.document-name__title')?.textContent.trim() || document.title`));
     if (from > opened.total) throw new Error("range");
+
+    // One page per sheet. The reader's "two pages" choice is remembered by edubase and would
+    // apply here too; switch it off for the print and back on afterwards.
+    const isDouble = () => js(`/double/.test(document.querySelector('#docPageMode i')?.className || '')`);
+    if (await isDouble()) {
+      await js(`document.querySelector('[data-action=changePageMode]')?.click()`);
+      wasDouble = !!(await waitFor(async () => !(await isDouble()), 10000, 150, token));
+      if (!wasDouble) throw new Error("stalled");
+      await js(`location.hash = '#doc/${job.id}/${from}'`);
+      await waitFor(async () => String((await readPager()).page) === String(from), 10000, 150, token);
+    }
+
+    // Edubase prints a black frame around every page; a saved book reads better without.
+    await getWorker().webContents.insertCSS("@media print { .doc-page-wrapper { border: 0 !important; } }");
+
+    const ink = job.ink && Object.keys(job.ink).length && job.inkAssets ? job.ink : null;
+    if (ink) {
+      await getWorker().webContents.insertCSS(job.inkAssets.css);
+      await js(job.inkAssets.js);
+    }
     const last = Math.min(job.to || opened.total, opened.total);
     const count = Math.max(1, last - from + 1);
     const started = Date.now();
@@ -356,6 +380,11 @@ async function download(job, onProgress, token) {
           throw new Error("stalled");
         }
         await waitIdle({ token });
+      }
+
+      if (ink) {
+        const page = (await readPager()).page;
+        await js(`window.__stapelInk.drawPage(${JSON.stringify(page)}, ${JSON.stringify(ink[page] || [])})`);
       }
 
       const pdf = await getWorker().webContents.printToPDF({
@@ -390,9 +419,13 @@ async function download(job, onProgress, token) {
     return { path: out, pages: files.length };
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    if (wasDouble && worker && !worker.isDestroyed()) {
+      await js(`document.querySelector('[data-action=changePageMode]')?.click()`).catch(() => {});
+      await sleep(400);
+    }
     // Leave the reader so edubase does not keep a "currently reading" state open.
     if (worker && !worker.isDestroyed()) worker.loadURL("about:blank").catch(() => {});
   }
 }
 
-module.exports = { init, status, login, logout, library, download };
+module.exports = { init, status, login, logout, library, download, safeName };

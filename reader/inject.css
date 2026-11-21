@@ -1,0 +1,99 @@
+/* Stapel's reader shows edubase's page view and nothing else of edubase's interface:
+   the bars, the side panel and the page arrows are replaced by the app's own. */
+#main-navbar,
+#readmodeAppHeader,
+#readmodeAppFooter,
+#readmodeAppAside,
+#panelResizer,
+#searchPanelContainer,
+#gaSettingsContainer,
+#leftBookmark,
+#rightBookmark,
+.lu-page-navigation,
+.lu-app-loader {
+  display: none !important;
+}
+
+/* The space edubase keeps free for its side panel. */
+#docView {
+  --side-panel-width: 0px !important;
+  --side-panel-nav-width: 0px !important;
+}
+#docView .readmode-app {
+  margin-right: 0 !important;
+}
+
+html,
+body,
+main,
+.main-screen,
+.main-body,
+#docView,
+.readmode-app,
+.pdf-reader-container,
+.lu-doc-pages-container {
+  background: #f5f3ef !important;
+}
+
+.doc-page-wrapper:not([data-pageid="dummy"]) {
+  background: #fff;
+  box-shadow: 0 0 0 4px rgb(40 30 10 / 0.05), 0 12px 60px rgb(40 30 10 / 0.16);
+}
+
+.iScrollIndicator {
+  background: rgb(60 50 30 / 0.28) !important;
+  border: 0 !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  html,
+  body,
+  main,
+  .main-screen,
+  .main-body,
+  #docView,
+  .readmode-app,
+  .pdf-reader-container,
+  .lu-doc-pages-container {
+    background: #1b1a19 !important;
+  }
+  .doc-page-wrapper:not([data-pageid="dummy"]) {
+    box-shadow: 0 0 0 4px rgb(0 0 0 / 0.25), 0 12px 60px rgb(0 0 0 / 0.5);
+  }
+  .iScrollIndicator {
+    background: rgb(255 255 255 / 0.3) !important;
+  }
+}
+
+/* ------------------------------------------------------------ the user's own notes */
+
+body.stapel-draw .stapel-layer {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+body.stapel-tool-text .stapel-layer {
+  cursor: text;
+}
+body.stapel-tool-eraser .stapel-layer {
+  cursor: cell;
+}
+body.stapel-tool-text .stapel-text,
+body.stapel-tool-eraser .stapel-text {
+  pointer-events: auto;
+}
+body.stapel-tool-text .stapel-text {
+  cursor: move;
+}
+body.stapel-tool-text .stapel-text:hover {
+  box-shadow: 0 0 0 1px rgb(23 96 79 / 0.45);
+}
+.stapel-text.stapel-editing {
+  cursor: text !important;
+  user-select: text;
+  background: rgb(255 255 255 / 0.82);
+  box-shadow: 0 0 0 1.5px #17604f !important;
+}
+.stapel-ink .stapel-fade {
+  opacity: 0.25;
+}
