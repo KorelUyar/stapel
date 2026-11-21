@@ -2,8 +2,8 @@ name: Windows
 
 # Builds the Windows installer on a real Windows machine and proves it works: the end-to-end
 # check (scripts/smoke.js) against the source and against the packaged app, then a silent
-# install and a screenshot of the installed app. The installer is kept as an artifact; the
-# release is made by hand from it.
+# install and a screenshot of the installed app, then an update over the running app. The
+# installer is kept as an artifact; the release is made by hand from it.
 
 on:
   push:
@@ -61,6 +61,32 @@ jobs:
           Write-Host "installed app still running after 25 s:" $running
           Get-Process Stapel -ErrorAction SilentlyContinue | Stop-Process -Force
           if (-not $running) { throw "the installed app did not stay open" }
+
+      # The way the app updates itself: the installer of the new version is run over the
+      # installed, running app. It has to close the app, install without a question, and
+      # start the app again.
+      - name: Update over the running app
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\Stapel\Stapel.exe"
+          $old = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 12
+          node -e "require('./update.js').installWindows(require('path').resolve('dist/Stapel-Windows-Setup.exe'))"
+          if (-not $old.WaitForExit(120000)) { throw "the running app was not closed by the update" }
+          Write-Host "the running app was closed"
+          Start-Sleep -Seconds 3
+          $deadline = (Get-Date).AddSeconds(150)
+          $started = $false
+          while ((Get-Date) -lt $deadline -and -not $started) {
+            Start-Sleep -Seconds 2
+            $started = [bool](Get-Process Stapel -ErrorAction SilentlyContinue)
+          }
+          if (-not $started) { throw "the app was not started again after the update" }
+          Start-Sleep -Seconds 20
+          $running = @(Get-Process Stapel -ErrorAction SilentlyContinue)
+          Write-Host "Stapel processes 20 s after the update:" $running.Count
+          if ($running.Count -eq 0) { throw "the updated app did not stay open" }
+          $running | Stop-Process -Force
 
       - uses: actions/upload-artifact@v4
         with:

@@ -31,5 +31,9 @@ contextBridge.exposeInMainWorld("app", {
   bookmark: (id, page) => ipcRenderer.invoke("bookmark", id, page),
   setClassic: (on, persist) => ipcRenderer.invoke("set-classic", on, persist),
   onReader: (cb) => ipcRenderer.on("reader", (_e, type, data) => cb(type, data)),
+  updateState: () => ipcRenderer.invoke("update-state"),
+  updateStart: () => call("update-start"),
+  updatePage: () => ipcRenderer.invoke("update-page"),
+  onUpdate: (cb) => ipcRenderer.on("update", (_e, data) => cb(data)),
   onProgress: (cb) => ipcRenderer.on("progress", (_e, p) => cb(p)),
 });

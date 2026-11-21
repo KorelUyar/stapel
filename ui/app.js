@@ -46,6 +46,7 @@ function show(screen) {
   $("folderBtn").hidden = screen !== "library";
   $("selBar").hidden = !(screen === "library" && state.selecting);
   closePop();
+  renderUpdate();
 }
 
 function toast(text) {
@@ -177,6 +178,7 @@ async function setLanguage(lang) {
   await refreshFolder();
   if (state.screen === "library") renderLibrary();
   if (state.screen === "reader") renderReader();
+  renderUpdate();
   if (state.screen === "boot") {
     if (state.bootError) $("bootText").textContent = errorText(state.bootError);
     else $("bootText").textContent = t(state.loggedIn ? "loadingLibrary" : "connecting");

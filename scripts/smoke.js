@@ -77,6 +77,15 @@ app.whenReady().then(async () => {
     const hint = await js(`t("pasteHint")`);
     check("paste hint fits the platform", hint.includes(process.platform === "darwin" ? "⌘V" : "Ctrl+V"), hint);
 
+    // A newer version is reported the way the main process does it (nothing is downloaded here).
+    const quiet = await js(`document.getElementById('updateBtn').hidden`);
+    await js(`onUpdate({ available: true, latest: '9.9.9', current: '1.2.0' })`);
+    await js(`document.getElementById('updateBtn').click()`);
+    await sleep(300);
+    check("a newer version shows the update button", quiet && (await js(`!document.getElementById('updateBtn').hidden && /9\.9\.9/.test(document.getElementById('updateText').textContent) && document.querySelectorAll('#pop .btn').length === 2`)),
+      await js(`document.getElementById('updateText').textContent`));
+    await js(`closePop(); up.latest = null; renderUpdate()`);
+
     await js(`document.getElementById('guestBtn').click()`);
     check("library with free books", await until(`${vis("library")} && document.querySelectorAll('.card').length > 0`, 60000),
       await js(`document.getElementById('libCount').textContent`).catch(() => ""));

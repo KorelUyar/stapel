@@ -122,6 +122,51 @@ svg {
 .chip:hover {
   border-color: var(--muted);
 }
+/* A newer version is there: the one filled chip in the title bar. */
+.chip.update {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.chip.update svg {
+  color: inherit;
+  stroke-width: 2;
+}
+.chip.update:hover {
+  filter: brightness(1.08);
+}
+.chip.update.busy {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  cursor: default;
+  font-variant-numeric: tabular-nums;
+}
+.chip.update.busy:hover {
+  filter: none;
+}
+.pop.update-pop {
+  width: 280px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.update-pop strong {
+  font-family: var(--round);
+  font-size: 17px;
+}
+.update-pop p {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.update-pop p.fail-text {
+  color: var(--danger);
+  text-align: left;
+}
+
 .chip.ghost {
   background: transparent;
   border-color: transparent;

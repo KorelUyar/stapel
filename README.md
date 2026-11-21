@@ -59,6 +59,12 @@ anyway. Stapel installs for your user only, no administrator needed.
 
 You need an Edubase account. Without one you can look at Edubase's free books.
 
+**Updates.** From version 1.2 on, Stapel looks on GitHub for a newer version when it starts.
+If there is one, a button "Update to …" appears at the top. One click downloads the new
+version, puts it in place of the old one and starts Stapel again; your books, folders and notes
+stay as they are. Nothing is downloaded before that click. On a Mac this needs Stapel to be in
+the Applications folder (where the line above puts it).
+
 ## Please note
 
 Stapel is not made by Edubase and is not affiliated with it. The pages of a book are drawn by
@@ -86,6 +92,7 @@ own PDF printer and merges the pages with `pdf-lib`.
 - `reader.js` – the reader's side in the main process: commands, notes on disk
 - `reader/` – what runs inside Edubase's page (`inject.js`, `ink.js`) and the stylesheets
 - `reader-preload.js` – the one channel from that page to the app
+- `update.js` – looks for a newer release, downloads it, swaps it in
 - `main.js` – window, reader lock-down, settings, folders, IPC
 - `preload.js` – the bridge the interface may call
 - `ui/` – the interface (`library.js`, `reader.js`, `pdf.js`; `i18n.js` holds all text)
@@ -100,7 +107,14 @@ node_modules/.bin/electron scripts/shots.js <dir> light|dark   # the pictures ab
 ```
 
 Every push to `main` builds the Windows installer on GitHub Actions and runs the end-to-end
-check there, against the source and the packaged app, then installs it silently and starts it.
+check there, against the source and the packaged app, then installs it silently, starts it,
+and runs the installer once more over the running app, the way an update does.
+
+How an update works: the app asks `github.com/KorelUyar/stapel/releases/latest` where it
+points to, and reads the version from that address. The file comes from the same release.
+On a Mac the new `Stapel.app` is unpacked next to the old one, its name, version and signature
+are checked, and a small script swaps the two once the app has quit. On Windows the installer
+of the new version runs without questions and starts the app again.
 
 Edubase can change its website at any time. What Stapel relies on is in `edubase.js`
 (`.lu-library-item`, `.lu-profile-settings__login`, `[data-item=page-settings]`,

@@ -3,12 +3,15 @@ const fs = require("fs");
 const path = require("path");
 const edubase = require("./edubase");
 const reader = require("./reader");
+const update = require("./update");
 
 const EDUBASE = "https://app.edubase.ch/";
 
 let win;
 let job = null; // { token } while a PDF is being saved
 let lastPdf = null; // the PDF saved last; the only file "Open" and "Show in Finder" act on
+let newVersion = null; // { latest, current } once GitHub has a newer release
+let updating = null; // { token } while an update is downloaded and installed
 
 // ---------------------------------------------------------------- settings
 
@@ -179,6 +182,11 @@ app.whenReady().then(() => {
     if (win && !win.isDestroyed()) win.webContents.send("reader", type, data);
   });
   createWindow();
+  // Only the installed app looks for updates; a copy run from the source does not.
+  if (app.isPackaged && update.supported()) {
+    setTimeout(lookForUpdate, 5000);
+    setInterval(lookForUpdate, 6 * 60 * 60 * 1000).unref();
+  }
   app.on("activate", () => {
     if (!win || win.isDestroyed()) createWindow();
   });
@@ -299,6 +307,7 @@ ipcMain.handle(
   "download",
   wrap(async (book) => {
     if (job) throw new Error("busy");
+    if (updating) throw new Error("updating");
     if (!book || !isBookId(String(book.id))) throw new Error("noaccess");
     job = { token: { cancelled: false } };
     try {
@@ -317,6 +326,7 @@ ipcMain.handle(
   "download-many",
   wrap(async (books, options) => {
     if (job) throw new Error("busy");
+    if (updating) throw new Error("updating");
     const list = (Array.isArray(books) ? books : []).filter((b) => b && isBookId(String(b.id))).slice(0, 500);
     if (!list.length) return [];
     job = { token: { cancelled: false } };
@@ -384,6 +394,47 @@ ipcMain.handle("open-book-pdf", (_e, id) => {
   const file = (readSettings().pdfs || {})[String(id)];
   return typeof file === "string" && fs.existsSync(file) ? shell.openPath(file).then(() => true) : false;
 });
+
+// ---------------------------------------------------------------- IPC: updates
+
+const sendUpdate = (data) => win && !win.isDestroyed() && win.webContents.send("update", data);
+
+// Asks GitHub for the newest release. Being offline is not an error here: it asks again later.
+async function lookForUpdate() {
+  try {
+    const latest = await update.latestVersion();
+    newVersion = update.newer(latest, app.getVersion()) ? { latest, current: app.getVersion() } : null;
+  } catch {}
+  if (newVersion && !updating) sendUpdate({ available: true, ...newVersion });
+  return newVersion;
+}
+
+ipcMain.handle("update-state", () => (newVersion ? { available: true, ...newVersion, busy: !!updating } : { available: false }));
+ipcMain.handle("update-page", () => shell.openExternal(`${update.HOME}/releases/latest`));
+
+// Download the new version, put it in place of this one, and start again.
+ipcMain.handle(
+  "update-start",
+  wrap(async () => {
+    if (!newVersion) throw new Error("download");
+    if (job) throw new Error("busy");
+    if (updating) return;
+    updating = { token: { cancelled: false } };
+    const { latest } = newVersion;
+    try {
+      const file = await update.download(latest, (part) => sendUpdate({ phase: "download", part }), updating.token);
+      sendUpdate({ phase: "install" });
+      await reader.cmd("tool", {}); // text that is being written on a page is kept
+      flushProgress();
+      await update.install(file, latest);
+      sendUpdate({ phase: "restart" });
+      setTimeout(() => app.quit(), 600);
+    } catch (err) {
+      updating = null;
+      throw err;
+    }
+  }),
+);
 
 // ---------------------------------------------------------------- IPC: reader
 
