@@ -13,7 +13,9 @@ install_stapel() {
   set -e
   local url="https://github.com/KorelUyar/stapel/releases/latest/download/Stapel-macOS.zip"
   local tmp; tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  # The folder's name is written into the trap now: when the trap runs, at the very end,
+  # the variable of this function is gone.
+  trap "rm -rf ${(q)tmp}" EXIT
 
   echo "Downloading Stapel…"
   curl -fL --progress-bar "$url" -o "$tmp/Stapel.zip"

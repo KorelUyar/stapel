@@ -270,8 +270,18 @@ async function library() {
 
 // ---------------------------------------------------------------- download
 
-function safeName(name) {
-  return (name || "Edubase-Buch").replace(/[\/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().slice(0, 150);
+// A name that is safe as a file or folder name on macOS and Windows: no separators, no
+// control characters, no dots at the start (hidden, or ".." = the folder above) or dots and
+// spaces at the end (Windows drops them), and none of the names Windows keeps for devices.
+function safeName(name, fallback = "Edubase-Buch") {
+  const clean = String(name || "")
+    .replace(/[\/\\:*?"<>|\x00-\x1f]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 150)
+    .replace(/^[. ]+/, "")
+    .replace(/[. ]+$/, "");
+  return !clean || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(clean) ? fallback : clean;
 }
 
 function freePath(dir, name) {

@@ -179,7 +179,11 @@ function renderReader() {
   const n = pageNumber();
   const busy = !r.ready;
 
-  for (const b of document.querySelectorAll("#toolset button")) b.classList.toggle("on", b.dataset.tool === r.tool);
+  for (const b of document.querySelectorAll("#toolset button")) {
+    b.classList.toggle("on", b.dataset.tool === r.tool);
+    // The bar under pen, highlighter and text shows the colour that tool writes in.
+    if (r.color[b.dataset.tool]) b.style.setProperty("--c", r.color[b.dataset.tool]);
+  }
   renderToolOptions();
   $("undoBtn").disabled = !r.canUndo;
   $("redoBtn").disabled = !r.canRedo;
@@ -218,16 +222,16 @@ function renderToolOptions() {
       r.color[kind] = c;
       saveToolPrefs();
       sendTool();
-      renderToolOptions();
+      renderReader();
     };
     swatches.append(b);
   }
   const sizes = $("sizes");
   sizes.replaceChildren();
   TOOL_SIZES[kind].forEach((_, i) => {
-    const b = el("button", `size s${i}` + (i === r.size[kind] ? " on" : "") + (kind === "text" ? " letter" : ""));
+    const b = el("button", `size s${i} k-${kind}` + (i === r.size[kind] ? " on" : "") + (kind === "text" ? " letter" : ""));
     b.title = t(["sizeS", "sizeM", "sizeL"][i]);
-    b.append(kind === "text" ? el("span", "", "A") : el("span", "dot"));
+    b.append(kind === "text" ? el("span", "", "A") : el("span", "line"));
     b.onclick = () => {
       r.size[kind] = i;
       saveToolPrefs();
@@ -320,7 +324,7 @@ function renderPanel() {
       const head = el("span", "prow-label", t("page", note.page));
       const what = [];
       if (note.strokes) what.push(t("drawings", note.strokes));
-      if (note.texts.length) what.push(t("texts", note.texts.length));
+      if (note.texts.length) what.push(t("notesN", note.texts.length));
       b.append(head, el("span", "prow-page", what.join(", ")));
       for (const text of note.texts.slice(0, 3)) b.append(el("span", "prow-quote", text));
       b.onclick = () => cmd("go", note.page);

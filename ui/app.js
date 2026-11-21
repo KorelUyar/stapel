@@ -39,6 +39,7 @@ function show(screen) {
   const reading = screen === "reader";
   $("backBtn").hidden = !reading;
   $("pdfBtn").hidden = !reading;
+  $("langSwitch").hidden = reading;
   $("barTitle").textContent = reading ? state.reading?.title || "" : "Stapel";
   $("barTitle").classList.toggle("reading", reading);
   $("logoutBtn").hidden = !(screen === "library" && state.loggedIn);
@@ -167,6 +168,7 @@ async function refreshFolder() {
   $("folderName").textContent = name;
   $("folderBtn").title = t("folderTitle", outputDir);
   $("saveWhere").textContent = t("savesIn", name);
+  $("runWhere").textContent = t("savesIn", name);
 }
 
 async function setLanguage(lang) {

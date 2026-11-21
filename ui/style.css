@@ -8,6 +8,7 @@
   --accent: #17604f;
   --accent-ink: #ffffff;
   --accent-soft: #dcebe4;
+  --raised: #fffdf9;
   --danger: #b4361f;
   --shadow: 0 1px 2px rgb(40 30 10 / 0.08), 0 8px 24px -12px rgb(40 30 10 / 0.25);
   --green: #1f6e59;
@@ -28,6 +29,7 @@
     --accent: #5bb595;
     --accent-ink: #0f1f1a;
     --accent-soft: #23362f;
+    --raised: #56524c;
     --danger: #f07a62;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px -12px rgb(0 0 0 / 0.7);
     color-scheme: dark;
@@ -324,9 +326,9 @@ button:focus-visible {
 .welcome h1 {
   font-family: var(--round);
   font-size: 38px;
-  line-height: 1.08;
+  line-height: 1.1;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.005em;
 }
 
 .lead {
@@ -483,7 +485,7 @@ input:focus {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
   animation: rise 0.4s ease both;
 }
 
@@ -525,38 +527,14 @@ input:focus {
   text-align: center;
   overflow: hidden;
 }
-.cover::after {
-  content: attr(data-label);
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
-  height: 30px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-size: 12.5px;
-  font-weight: 600;
-  background: var(--accent);
-  color: var(--accent-ink);
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
 .card:hover .cover,
 .cover:focus-visible {
   transform: translateY(-3px);
-}
-.card:hover .cover::after,
-.cover:focus-visible::after {
-  opacity: 1;
-  transform: none;
+  box-shadow: 0 2px 4px rgb(40 30 10 / 0.1), 0 16px 30px -12px rgb(40 30 10 / 0.4);
 }
 .cover:focus-visible {
-  outline: none;
-}
-.grid.selecting .cover::after {
-  display: none;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 /* How far the book has been read: a thin line along the bottom of the cover. */
@@ -574,64 +552,59 @@ input:focus {
   background: var(--mustard);
 }
 
-.pick,
-.card-more {
+/* While books are being picked: an empty ring, filled with a tick once the book is picked. */
+.pick {
   position: absolute;
+  z-index: 2;
+  left: 8px;
   top: 8px;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border-radius: 50%;
-  border: 0;
+  border: 2px solid #fff;
   display: grid;
   place-items: center;
-  background: rgb(255 255 255 / 0.94);
-  color: #1d1c1a;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
-  opacity: 0;
-  transform: translateY(-3px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.pick {
-  left: 8px;
+  background: rgb(0 0 0 / 0.22);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25), 0 1px 4px rgb(0 0 0 / 0.3);
+  pointer-events: none;
 }
 .pick svg {
-  width: 14px;
-  height: 14px;
-  stroke-width: 2.4;
-  opacity: 0.25;
-}
-.card-more {
-  right: 8px;
-}
-.card-more svg,
-.folder-more svg {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   stroke-width: 2.6;
+  opacity: 0;
 }
-.card:hover .pick,
-.card:hover .card-more,
-.pick:focus-visible,
-.card-more:focus-visible,
-.grid.selecting .pick,
-.card.picked .pick {
-  opacity: 1;
-}
-.grid.selecting .card-more {
-  display: none;
-}
-.card.picked .pick {
+.card.picked .pick,
+.folder .pick.all,
+.folder .pick.some {
   background: var(--accent);
+  border-color: var(--accent);
   color: var(--accent-ink);
+  box-shadow: 0 0 0 2px #fff, 0 1px 4px rgb(0 0 0 / 0.3);
 }
-.card.picked .pick svg {
+.card.picked .pick svg,
+.folder .pick.all svg {
   opacity: 1;
 }
 .card.picked .cover {
   box-shadow: 0 0 0 3px var(--bg), 0 0 0 6px var(--accent);
 }
+.folder .pick {
+  pointer-events: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+}
 
+.card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
 .card-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
@@ -640,13 +613,43 @@ input:focus {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.card-more {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: -2px -4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  opacity: 0.55;
+}
+.card-more svg,
+.folder-more svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.6;
+}
+.card:hover .card-more,
+.card-more:focus-visible {
+  opacity: 1;
+}
+.card-more:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+.grid.selecting .card-more {
+  visibility: hidden;
+}
 
 .card-meta {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
-  margin-top: -5px;
+  gap: 8px;
+  margin-top: -4px;
   min-height: 18px;
   font-size: 11.5px;
   color: var(--muted);
@@ -654,11 +657,18 @@ input:focus {
 .card-meta:empty {
   display: none;
 }
+.card-page {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .tag {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: none;
   max-width: 100%;
   height: 18px;
   padding: 0 7px;
@@ -667,9 +677,13 @@ input:focus {
   background: var(--field);
   font-size: 11px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
+}
+.tag:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .tag span:last-child {
   overflow: hidden;
@@ -681,16 +695,17 @@ input:focus {
   border-radius: 50%;
   flex: none;
 }
+.pdf-tag {
+  box-shadow: inset 0 0 0 1px var(--line);
+}
 .pdf-tag:hover {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.note-tag {
-  padding: 0 5px;
-}
-.note-tag svg {
-  width: 11px;
-  height: 11px;
+
+/* Room below the last row, so the bar for the picked books covers nothing. */
+#library.selecting {
+  padding-bottom: 110px;
 }
 
 /* ------------------------------------------------------------ folders */
@@ -699,7 +714,7 @@ input:focus {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 22px 24px;
-  margin-bottom: 34px;
+  margin-bottom: 30px;
   padding-bottom: 30px;
   border-bottom: 1px solid var(--line);
 }
@@ -710,44 +725,38 @@ input:focus {
   animation: rise 0.4s ease both;
 }
 
+/* A pocket in the folder's colour: the name is written on it, the first covers look out. */
 .folder-open {
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  display: block;
   width: 100%;
+  aspect-ratio: 3 / 2;
   padding: 0;
   border: 0;
   background: none;
   text-align: left;
-}
-
-/* A pocket in the folder's colour with the first covers looking out of it. */
-.folder-art {
-  position: relative;
-  display: block;
-  aspect-ratio: 4 / 3;
-  margin-bottom: 10px;
   transition: transform 0.18s ease;
 }
 .folder-back {
   position: absolute;
-  inset: 9% 0 0;
+  inset: 12% 0 0;
   border-radius: 9px;
-  background: color-mix(in srgb, var(--c) 78%, #000);
+  background: color-mix(in srgb, var(--c) 76%, #000);
 }
 .folder-back::before {
   content: "";
   position: absolute;
   left: 0;
-  top: -11%;
+  top: -13%;
   width: 40%;
-  height: 20%;
+  height: 24%;
   border-radius: 8px 10px 0 0;
   background: inherit;
 }
 .folder-peek {
   position: absolute;
-  bottom: 26%;
-  width: 33%;
+  bottom: 44%;
+  width: 27%;
   aspect-ratio: 3 / 4;
   border-radius: 3px;
   overflow: hidden;
@@ -763,7 +772,7 @@ input:focus {
 }
 .folder-peek .no-cover {
   padding: 3px;
-  font-size: 7px;
+  font-size: 6px;
   line-height: 1.1;
 }
 .folder-peek.p1 {
@@ -771,12 +780,12 @@ input:focus {
   transform: rotate(-7deg);
 }
 .folder-peek.p2 {
-  left: 33%;
-  bottom: 31%;
+  left: 35%;
+  bottom: 47%;
   transform: rotate(1deg);
 }
 .folder-peek.p3 {
-  left: 57%;
+  left: 61%;
   transform: rotate(8deg);
 }
 .folder-front {
@@ -784,31 +793,49 @@ input:focus {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 56%;
+  height: 62%;
+  padding: 0 34px 10px 12px;
   border-radius: 5px 5px 9px 9px;
   background: var(--c);
+  color: var(--on);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), 0 -1px 3px rgb(0 0 0 / 0.18);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
-.folder:hover .folder-art {
+.folder-name {
+  font-family: var(--round);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-count {
+  font-size: 11.5px;
+  opacity: 0.8;
+}
+.folder:hover .folder-open {
   transform: translateY(-3px);
 }
 .folder:hover .p1 {
-  transform: rotate(-9deg) translateY(-7px);
+  transform: rotate(-9deg) translateY(-6px);
 }
 .folder:hover .p2 {
-  transform: rotate(1deg) translateY(-9px);
+  transform: rotate(1deg) translateY(-8px);
 }
 .folder:hover .p3 {
-  transform: rotate(10deg) translateY(-7px);
+  transform: rotate(10deg) translateY(-6px);
 }
-.folder.drop .folder-art {
+.folder.drop .folder-open {
   transform: scale(1.05);
 }
 .folder.drop .folder-front {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), 0 0 0 3px var(--bg), 0 0 0 6px var(--c);
 }
 .folder.drop .folder-peek {
-  transform: translateY(-10px);
+  transform: translateY(-9px);
 }
 .folder-open:focus-visible {
   outline: none;
@@ -817,55 +844,28 @@ input:focus {
   box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent);
 }
 
-.folder-name {
-  font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.folder-count {
-  font-size: 11.5px;
-  color: var(--muted);
-}
-
-.folder .pick {
-  opacity: 1;
-  transform: none;
-  top: 18px;
-}
-.folder .pick.all,
-.folder .pick.some {
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 11.5px;
-  font-weight: 700;
-}
-.folder .pick.all svg {
-  opacity: 1;
-}
-
 .folder-more {
   position: absolute;
-  right: 8px;
-  bottom: 50px;
+  right: 6px;
+  bottom: 8px;
   width: 26px;
   height: 26px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: rgb(255 255 255 / 0.22);
-  color: #fff;
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  background: none;
+  color: var(--on);
+  opacity: 0.6;
+  transition: opacity 0.15s ease, background 0.15s ease;
 }
 .folder:hover .folder-more,
 .folder-more:focus-visible {
   opacity: 1;
 }
 .folder-more:hover {
-  background: rgb(255 255 255 / 0.36);
+  background: color-mix(in srgb, var(--on) 20%, transparent);
 }
 
 /* While books are being dragged, nothing else should react to the pointer. */
@@ -899,7 +899,7 @@ input:focus {
   position: fixed;
   top: 12px;
   right: 12px;
-  bottom: 12px;
+  max-height: calc(100% - 24px);
   width: 340px;
   padding: 26px 26px 24px;
   border-radius: 16px;
@@ -1022,7 +1022,7 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: auto;
+  margin-top: 6px;
 }
 
 .seg {
@@ -1042,7 +1042,7 @@ input:focus {
   color: var(--muted);
 }
 .seg button.on {
-  background: var(--surface);
+  background: var(--raised);
   color: var(--ink);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
@@ -1215,14 +1215,13 @@ input:focus {
   color: var(--muted);
 }
 .lang button.on {
-  background: var(--surface);
+  background: var(--raised);
   color: var(--ink);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
 
 .welcome .foot {
   margin: 34px 0 0;
-  opacity: 0.8;
 }
 
 /* ------------------------------------------------------------ reader */
@@ -1279,6 +1278,22 @@ input:focus {
   fill: currentColor;
 }
 
+.tbtn.word {
+  width: auto;
+  padding: 0 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.tbtn.labeled {
+  width: auto;
+  padding: 0 10px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
 .toolset {
   display: flex;
   gap: 2px;
@@ -1287,16 +1302,44 @@ input:focus {
   background: var(--field);
 }
 .toolset .tbtn {
-  width: 34px;
+  width: 36px;
   height: 30px;
+}
+.toolset .tbtn.word {
+  width: auto;
 }
 .toolset .tbtn:hover:not(.on) {
   background: rgb(127 127 127 / 0.14);
 }
 .toolset .tbtn.on {
-  background: var(--surface);
+  background: var(--raised);
   color: var(--ink);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
+}
+/* Pen, highlighter and text carry a bar in the colour they write in. */
+.tbtn.inked {
+  position: relative;
+  padding-bottom: 5px;
+}
+.ink-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  height: 2.5px;
+  border-radius: 2px;
+  background: var(--c, currentColor);
+  box-shadow: 0 0 0 0.5px rgb(127 127 127 / 0.5);
+}
+.ink-bar.wide {
+  left: 8px;
+  right: 8px;
+  bottom: 3px;
+  height: 4.5px;
+}
+.tbtn.inked svg {
+  width: 15px;
+  height: 15px;
 }
 
 .rsep {
@@ -1341,10 +1384,10 @@ input:focus {
 }
 @media (prefers-color-scheme: dark) {
   .swatch {
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3);
+    box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.55);
   }
   .swatch.on {
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3), 0 0 0 2px var(--bg), 0 0 0 4px var(--ink);
+    box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.55), 0 0 0 2px var(--bg), 0 0 0 4px var(--ink);
   }
 }
 .size {
@@ -1358,21 +1401,28 @@ input:focus {
   place-items: center;
   color: var(--muted);
 }
-.size .dot {
-  border-radius: 50%;
+.size .line {
+  width: 16px;
+  border-radius: 4px;
   background: currentColor;
 }
-.size.s0 .dot {
-  width: 4px;
+.size.s0 .line {
+  height: 1.5px;
+}
+.size.s1 .line {
+  height: 3px;
+}
+.size.s2 .line {
+  height: 5.5px;
+}
+.size.k-hl.s0 .line {
   height: 4px;
 }
-.size.s1 .dot {
-  width: 8px;
-  height: 8px;
+.size.k-hl.s1 .line {
+  height: 7px;
 }
-.size.s2 .dot {
-  width: 12px;
-  height: 12px;
+.size.k-hl.s2 .line {
+  height: 10px;
 }
 .size.letter {
   font-weight: 700;
@@ -1392,6 +1442,18 @@ input:focus {
 .size.on {
   background: var(--field);
   color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+@media (max-width: 1010px) {
+  .tbtn.labeled span {
+    display: none;
+  }
+  .tbtn.labeled {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
 }
 
 /* body: side panel and page */
@@ -1403,7 +1465,7 @@ input:focus {
 }
 
 .rside {
-  width: 272px;
+  width: 244px;
   flex: none;
   margin: 0 0 0 14px;
   padding: 10px;
@@ -1441,7 +1503,7 @@ input:focus {
   white-space: nowrap;
 }
 .rtabs button.on {
-  background: var(--surface);
+  background: var(--raised);
   color: var(--ink);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
@@ -1492,8 +1554,17 @@ input:focus {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.prow.toc {
+  font-size: 12.5px;
+}
 .prow.toc.l0 .prow-label {
-  font-weight: 600;
+  font-weight: 500;
+}
+.prow.toc:not(.l0) .prow-label {
+  color: var(--muted);
+}
+.prow.toc.on .prow-label {
+  color: var(--accent);
 }
 .prow.toc.l1 {
   padding-left: 20px;
@@ -1900,8 +1971,9 @@ input[type="range"]:disabled {
   text-align: left;
 }
 .batch-list {
-  flex: 1;
-  min-height: 90px;
+  flex: 0 1 auto;
+  min-height: 70px;
+  max-height: 46vh;
   margin: -6px -10px 0;
   overflow-y: auto;
 }
@@ -1933,7 +2005,7 @@ input[type="range"]:disabled {
   height: 8px;
   margin: 0 3px;
   border-radius: 50%;
-  background: var(--line);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
 }
 .brow.run {
   background: var(--field);
@@ -1955,10 +2027,6 @@ input[type="range"]:disabled {
 }
 .brow.bad .brow-status {
   color: var(--danger);
-}
-.run-book {
-  font-size: 13px;
-  font-weight: 600;
 }
 
 /* ------------------------------------------------------------ Windows */

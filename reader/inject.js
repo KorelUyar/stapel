@@ -181,6 +181,7 @@
   // Keep a notes layer on every page edubase shows. Edubase rebuilds its pages when the page
   // or the zoom changes, so this runs often and only redraws what is out of date.
   function sync() {
+    if (editing && !editing.div.isConnected) editing = null;
     for (const w of wrappers()) {
       const docPage = q(".doc-page", w);
       if (!docPage) continue;
@@ -299,7 +300,9 @@
     layerEl.addEventListener("pointerdown", (e) => {
       if (tool.name === "hand") return;
       e.stopPropagation();
-      if (e.button !== 0) return;
+      // Not before this book's notes have arrived from the app: a line drawn now would be
+      // saved as all there is on the page.
+      if (e.button !== 0 || !book.loaded) return;
       const onText = e.target.closest && e.target.closest(".stapel-text");
       if (editing) {
         if (onText === editing.div) return; // a click inside the text being written
@@ -436,12 +439,23 @@
 
   // ------------------------------------------------------------ moving around
 
+  // Text that is being written is kept before the page under it goes away.
+  const settle = () => {
+    if (editing) editing.div.blur();
+  };
   function go(page) {
+    settle();
     const at = where();
     if (at.id && page) location.hash = `#doc/${at.id}/${encodeURIComponent(page)}`;
   }
-  const next = () => click("[data-action=footer-next-page]");
-  const prev = () => click("[data-action=footer-prev-page]");
+  const next = () => {
+    settle();
+    return click("[data-action=footer-next-page]");
+  };
+  const prev = () => {
+    settle();
+    return click("[data-action=footer-prev-page]");
+  };
 
   const typing = (e) => {
     const el = e.target;
@@ -537,6 +551,7 @@
   // should stay fitted, so the app fits it again; a zoom the user chose is left alone.
   let fitted = null; // unknown until the first page is there
   const zoom = (how) => {
+    settle();
     fitted = how === "fit";
     click({ in: "[data-action=incrementZoom]", out: "[data-action=decrementZoom]", fit: "[data-action=fitPage]" }[how]);
   };
@@ -565,6 +580,7 @@
     fit: () => zoom("fit"),
     spread: () => {
       // One page or two: afterwards the page should fit the window again.
+      settle();
       const was = q("#docPageMode i")?.className;
       if (!click("[data-action=changePageMode]")) return;
       const started = Date.now();

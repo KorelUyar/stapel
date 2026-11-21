@@ -97,6 +97,7 @@ function renderLibrary() {
   grid.replaceChildren();
   books.forEach((book, i) => grid.append(bookCard(book, i, !!q)));
   grid.classList.toggle("selecting", state.selecting);
+  $("library").classList.toggle("selecting", state.selecting);
 
   const empty = $("empty");
   empty.hidden = books.length > 0;
@@ -128,7 +129,7 @@ function bookCard(book, i, showFolder) {
   card.draggable = true;
 
   const cover = el("button", "cover");
-  cover.dataset.label = t("read");
+  cover.title = book.title;
   cover.append(coverOf(book, i));
   if (book.progress && book.progress.total > 1 && book.progress.page > 1) {
     const bar = el("span", "cover-progress");
@@ -138,15 +139,18 @@ function bookCard(book, i, showFolder) {
     cover.append(bar);
   }
   cover.onclick = () => (state.selecting ? togglePick(book.id) : openBook(book));
+  card.append(cover);
 
-  const pick = el("button", "pick");
-  pick.title = t("select");
-  pick.append(icon("tick"));
-  pick.onclick = (e) => {
-    e.stopPropagation();
-    togglePick(book.id);
-  };
+  // The ring to tick shows only while books are being picked.
+  if (state.selecting) {
+    const pick = el("span", "pick");
+    pick.append(icon("tick"));
+    card.append(pick);
+  }
 
+  const row = el("div", "card-row");
+  const title = el("div", "card-title", book.title);
+  title.title = book.title;
   const more = el("button", "card-more");
   more.title = t("more");
   more.append(icon("more"));
@@ -154,9 +158,8 @@ function bookCard(book, i, showFolder) {
     e.stopPropagation();
     bookMenu(more, book);
   };
+  row.append(title, more);
 
-  const title = el("div", "card-title", book.title);
-  title.title = book.title;
   const meta = el("div", "card-meta");
   const folder = showFolder && folderById(state.shelf[book.id]);
   if (folder) {
@@ -166,7 +169,7 @@ function bookCard(book, i, showFolder) {
     tag.append(dot, el("span", "", folder.name));
     meta.append(tag);
   }
-  if (book.progress && book.progress.page > 1) meta.append(el("span", "", t("pageShort", book.progress.page, book.progress.total)));
+  if (book.progress && book.progress.page > 1) meta.append(el("span", "card-page", t("pageShort", book.progress.page, book.progress.total)));
   if (book.pdf) {
     const pdf = el("button", "tag pdf-tag", "PDF");
     pdf.title = t("openSavedPdf");
@@ -176,14 +179,8 @@ function bookCard(book, i, showFolder) {
     };
     meta.append(pdf);
   }
-  if (book.notes) {
-    const n = el("span", "tag note-tag");
-    n.title = t("hasNotes");
-    n.append(icon("pen"));
-    meta.append(n);
-  }
 
-  card.append(cover, pick, more, title, meta);
+  card.append(row, meta);
   card.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     bookMenu(more, book);
@@ -199,28 +196,38 @@ function bookCard(book, i, showFolder) {
   return card;
 }
 
-// A folder looks like one: the first covers peek out of a pocket in the folder's colour.
+// Light folder colours get dark writing, dark ones white.
+function inkOn(color) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.36 ? "#1d1c1a" : "#ffffff";
+}
+
+// A folder looks like one: a pocket in the folder's colour with its name on it, and the first
+// covers looking out.
 function folderTile(folder) {
   const books = sorted(booksIn(folder.id));
   const tile = el("div", "folder");
   tile.dataset.id = folder.id;
   tile.style.setProperty("--c", folder.color);
+  tile.style.setProperty("--on", inkOn(folder.color));
 
   const open = el("button", "folder-open");
-  const art = el("span", "folder-art");
-  art.append(el("span", "folder-back"));
+  open.title = folder.name;
+  open.append(el("span", "folder-back"));
   books.slice(0, 3).forEach((b, i) => {
     const peek = el("span", `folder-peek p${i + 1}`);
     peek.append(coverOf(b, i));
-    art.append(peek);
+    open.append(peek);
   });
-  art.append(el("span", "folder-front"));
-  open.append(art, el("span", "folder-name", folder.name), el("span", "folder-count", t("books", books.length)));
+  const front = el("span", "folder-front");
+  front.append(el("span", "folder-name", folder.name), el("span", "folder-count", t("books", books.length)));
+  open.append(front);
   open.onclick = () => {
     state.folder = folder.id;
     $("library").scrollTop = 0;
     renderLibrary();
   };
+  tile.append(open);
 
   // While books are being picked, a folder stands for the books in it.
   if (state.selecting && books.length) {
@@ -247,7 +254,7 @@ function folderTile(folder) {
     e.stopPropagation();
     editFolder(more, folder);
   };
-  tile.append(open, more);
+  tile.append(more);
   tile.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     editFolder(more, folder);
@@ -445,6 +452,8 @@ function togglePick(id) {
   if (!state.selecting) return setSelecting(true);
   document.querySelector(`.card[data-id="${id}"]`)?.classList.toggle("picked", state.selected.has(id));
   renderSelection();
+  // A folder's mark counts the picked books in it.
+  if (!$("folders").hidden && state.shelf[id]) renderLibrary();
 }
 
 function renderSelection() {

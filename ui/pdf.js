@@ -88,6 +88,7 @@ function setRange(range) {
 
 function beginRun() {
   state.running = true;
+  $("closeSheet").hidden = true; // while it runs, Cancel is the only way out
   sheetState("Run");
   $("runText").textContent = t("opening");
   $("runEta").textContent = "";
@@ -106,7 +107,6 @@ async function start() {
     book.from = from;
     book.to = to;
   }
-  $("runBook").hidden = true;
   beginRun();
   try {
     state.result = await window.app.download(book);
@@ -129,6 +129,7 @@ async function start() {
     }
   } finally {
     state.running = false;
+    $("closeSheet").hidden = false;
   }
 }
 
@@ -143,9 +144,8 @@ function batchRow(id, kind, text) {
 async function startBatch() {
   const batch = state.batch;
   for (const book of batch.books) batchRow(book.id, "", "");
-  $("runBook").hidden = false;
-  $("runBook").textContent = t("bookOf", 1, batch.books.length);
   beginRun();
+  $("runText").textContent = t("bookOf", 1, batch.books.length);
   try {
     const results = await window.app.downloadMany(
       batch.books.map((b) => ({ id: b.id, title: b.title })),
@@ -182,33 +182,38 @@ async function startBatch() {
     sheetState("Fail");
   } finally {
     state.running = false;
+    $("closeSheet").hidden = false;
   }
 }
 
 window.app.onProgress((p) => {
   const fill = $("fill");
   if (p.batch && state.batch) {
-    $("runBook").textContent = t("bookOf", p.batch.index + 1, p.batch.count);
+    // Several books: the bar is the whole job, each row shows its own book.
+    const { index, count, id } = p.batch;
     if (p.phase === "book") {
       const res = p.result;
       if (res.ok) batchRow(res.id, "ok", t("pagesShort", res.pages));
       else batchRow(res.id, res.error === "cancelled" ? "skip" : "bad", res.error === "cancelled" ? t("notSaved") : errorText(new Error(res.error)));
       return;
     }
-    if (p.phase === "open") batchRow(p.batch.id, "run", t("openingShort"));
-    if (p.phase === "pages") batchRow(p.batch.id, "run", `${p.current} / ${p.total}`);
+    const part = p.phase === "pages" ? p.current / p.total : p.phase === "merge" ? 1 : 0;
+    if (p.phase === "open") batchRow(id, "run", t("openingShort"));
+    if (p.phase === "pages") batchRow(id, "run", `${p.current} / ${p.total}`);
+    if (p.phase !== "open" || index > 0) fill.classList.remove("wait");
+    fill.style.width = `${((index + part) / count) * 100}%`;
+    if (!$("cancelBtn").disabled) $("runText").textContent = t("bookOf", index + 1, count);
+    $("runEta").textContent = "";
+    return;
   }
   if (p.phase === "open") {
-    fill.classList.add("wait");
-    fill.style.width = "0";
     $("runText").textContent = t("opening");
-    $("runEta").textContent = "";
   } else if (p.phase === "pages") {
     fill.classList.remove("wait");
     fill.style.width = `${(p.current / p.total) * 100}%`;
     $("runText").textContent = t("pageOf", p.current, p.total);
     $("runEta").textContent = p.secondsLeft >= 5 ? t("left", p.secondsLeft) : "";
-    if (p.preview && !state.batch) {
+    if (p.preview) {
       $("sheetPreview").src = p.preview;
       $("sheetPreview").classList.add("show");
     }

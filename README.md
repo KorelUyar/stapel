@@ -16,7 +16,8 @@ own notes on the pages, and as PDFs when you need them offline.
 - **Write on the pages.** Pen, highlighter, typed text and an eraser, with undo. Your notes are
   kept on this computer; they are not sent to Edubase and do not appear in Edubase's own apps.
 - **Save as PDF.** One book, a range of pages, or many books in one go, sorted into folders
-  like in the app. Text stays text, and your notes can be printed into the PDF.
+  like in the app. Your notes can be printed into the PDF. Letters stay sharp at any zoom,
+  but the text of a saved book cannot be searched or copied: Edubase draws letters as shapes.
 - **Sign in once.** You sign in on Edubase's own page, also with Office 365, Edulog, Google or
   Apple. The app never sees your password and stays signed in.
 - English and German.

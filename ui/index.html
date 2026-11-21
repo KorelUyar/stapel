@@ -24,7 +24,7 @@
           <span id="folderName"></span>
         </button>
         <button class="chip ghost" id="logoutBtn" data-t="signOut" hidden></button>
-        <button class="btn primary small" id="pdfBtn" hidden>
+        <button class="btn secondary small" id="pdfBtn" hidden>
           <svg data-i="download"></svg>
           <span data-t="savePdf"></span>
         </button>
@@ -96,7 +96,7 @@
       <span class="selbar-count" id="selCount"></span>
       <button class="selbar-btn" id="selAllBtn"></button>
       <span class="selbar-gap"></span>
-      <button class="selbar-btn" id="selMoveBtn"><svg data-i="folder"></svg><span data-t="moveTo"></span></button>
+      <button class="selbar-btn" id="selMoveBtn"><svg data-i="folder"></svg><span data-t="moveToFolder"></span></button>
       <button class="selbar-btn strong" id="selPdfBtn"><svg data-i="download"></svg><span data-t="savePdfs"></span></button>
       <button class="selbar-btn" id="selDoneBtn" data-t="done"></button>
     </div>
@@ -107,10 +107,10 @@
         <button class="tbtn" id="sideBtn" data-t-title="sidebar"><svg data-i="sidebar"></svg></button>
         <span class="rsep"></span>
         <div class="toolset" id="toolset" role="radiogroup">
-          <button class="tbtn on" data-tool="hand" data-t-title="toolHand"><svg data-i="cursor"></svg></button>
-          <button class="tbtn" data-tool="pen" data-t-title="toolPen"><svg data-i="pen"></svg></button>
-          <button class="tbtn" data-tool="hl" data-t-title="toolHl"><svg data-i="marker"></svg></button>
-          <button class="tbtn" data-tool="text" data-t-title="toolText"><svg data-i="text"></svg></button>
+          <button class="tbtn word on" data-tool="hand" data-t-title="toolHandTitle"><span data-t="toolHand"></span></button>
+          <button class="tbtn inked" data-tool="pen" data-t-title="toolPen"><svg data-i="pen"></svg><i class="ink-bar"></i></button>
+          <button class="tbtn inked" data-tool="hl" data-t-title="toolHl"><svg data-i="marker"></svg><i class="ink-bar wide"></i></button>
+          <button class="tbtn inked" data-tool="text" data-t-title="toolText"><svg data-i="text"></svg><i class="ink-bar"></i></button>
           <button class="tbtn" data-tool="eraser" data-t-title="toolEraser"><svg data-i="eraser"></svg></button>
         </div>
         <div class="tool-options" id="toolOptions" hidden>
@@ -121,9 +121,9 @@
         <button class="tbtn" id="undoBtn" data-t-title="undo" disabled><svg data-i="undo"></svg></button>
         <button class="tbtn" id="redoBtn" data-t-title="redo" disabled><svg data-i="redo"></svg></button>
         <span class="rgap"></span>
-        <button class="tbtn" id="findBtn" data-t-title="find"><svg data-i="search"></svg></button>
-        <button class="tbtn" id="markBtn" data-t-title="bookmark"><svg data-i="bookmark"></svg></button>
-        <button class="tbtn" id="spreadBtn" data-t-title="twoPages"><svg data-i="spread"></svg></button>
+        <button class="tbtn labeled" id="findBtn" data-t-title="find"><svg data-i="search"></svg><span data-t="tabFind"></span></button>
+        <button class="tbtn labeled" id="markBtn" data-t-title="bookmark"><svg data-i="bookmark"></svg><span data-t="markShort"></span></button>
+        <button class="tbtn labeled" id="spreadBtn" data-t-title="twoPages"><svg data-i="book"></svg><span data-t="twoShort"></span></button>
         <button class="tbtn" id="moreBtn" data-t-title="more"><svg data-i="more"></svg></button>
       </div>
 
@@ -173,7 +173,7 @@
         <button class="tbtn" id="zoomOutBtn" data-t-title="zoomOut"><svg data-i="minus"></svg></button>
         <span class="zoom-text" id="zoomText"></span>
         <button class="tbtn" id="zoomInBtn" data-t-title="zoomIn"><svg data-i="plus"></svg></button>
-        <button class="tbtn" id="fitBtn" data-t-title="fit"><svg data-i="fit"></svg></button>
+        <button class="tbtn word" id="fitBtn" data-t-title="fit"><span data-t="fitShort"></span></button>
       </footer>
     </main>
 
@@ -210,12 +210,12 @@
       </section>
 
       <section id="stateRun" hidden>
-        <p class="run-book" id="runBook" hidden></p>
         <div class="progress"><div class="fill" id="fill"></div></div>
         <div class="run-line">
           <span id="runText"></span>
           <span class="muted" id="runEta"></span>
         </div>
+        <p class="fine center-text" id="runWhere"></p>
         <button class="btn secondary wide" id="cancelBtn" data-t="cancel"></button>
       </section>
 

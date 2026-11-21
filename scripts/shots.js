@@ -145,10 +145,10 @@ app.whenReady().then(async () => {
     await js(library);
     await sleep(1200);
     // Show one card and one folder the way they look under the pointer.
-    await win.webContents.insertCSS(`.card.hover-shot .cover { transform: translateY(-3px) } .card.hover-shot .cover::after { opacity: 1; transform: none }
-      .card.hover-shot .pick, .card.hover-shot .card-more { opacity: 1; transform: none }
-      .folder.hover-shot .folder-art { transform: translateY(-3px) } .folder.hover-shot .p1 { transform: rotate(-9deg) translateY(-7px) }
-      .folder.hover-shot .p2 { transform: rotate(1deg) translateY(-9px) } .folder.hover-shot .folder-more { opacity: 1 }`);
+    await win.webContents.insertCSS(`.card.hover-shot .cover { transform: translateY(-3px); box-shadow: 0 2px 4px rgb(40 30 10 / 0.1), 0 16px 30px -12px rgb(40 30 10 / 0.4) }
+      .card.hover-shot .card-more { opacity: 1 }
+      .folder.hover-shot .folder-open { transform: translateY(-3px) } .folder.hover-shot .p1 { transform: rotate(-9deg) translateY(-6px) }
+      .folder.hover-shot .p2 { transform: rotate(1deg) translateY(-8px) } .folder.hover-shot .folder-more { opacity: 1 }`);
     await js(`document.querySelectorAll('.card')[1].classList.add('hover-shot'); document.querySelectorAll('.folder')[0].classList.add('hover-shot')`);
     await shot("library");
 

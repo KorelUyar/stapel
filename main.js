@@ -295,7 +295,7 @@ ipcMain.handle(
           continue;
         }
         const folder = options?.byFolder ? folders.find((f) => f.id === shelf[id]) : null;
-        const dir = folder ? path.join(outputDir(), edubase.safeName(folder.name)) : outputDir();
+        const dir = folder ? path.join(outputDir(), edubase.safeName(folder.name, "Stapel")) : outputDir();
         sendProgress({ batch, phase: "open" });
         let result;
         try {
