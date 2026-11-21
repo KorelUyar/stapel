@@ -2,15 +2,17 @@
 //
 //   node_modules/.bin/electron scripts/shots.js <outDir> light|dark
 //
-// Uses edubase's free books (no account needed). The library picture uses invented sample
-// covers, because a signed-out library only has two books.
+// Uses edubase's free books (no account needed). The library pictures use invented sample
+// covers, because a signed-out library only has the free books. The notes in the reader
+// picture are written into the scratch profile before the book is opened.
 const { app, BrowserWindow, nativeTheme, webContents } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
 const [out, theme] = process.argv.slice(-2);
-app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "stapel-shots-")));
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), "stapel-shots-"));
+app.setPath("userData", profile);
 app.setPath("downloads", path.join(app.getPath("userData"), "downloads"));
 
 // This Mac's screen is 1x and smaller than a 2x picture. Let the app's window grow past the
@@ -45,7 +47,16 @@ const SAMPLES = [
   ["Physik", "Mechanik und Energie", "#2f7f9a"],
   ["Informatik", "Programmieren mit Python", "#5b4b8a"],
   ["Chemie", "Stoffe und Reaktionen", "#b84a62"],
+  ["Deutsch 2", "Literatur und Medien", "#c2573f"],
+  ["Englisch B2", "Workbook", "#35517a"],
+  ["Mathematik 2", "Geometrie und Stochastik", "#2a7d66"],
 ];
+const FOLDERS = [
+  { id: "fa", name: "Deutsch", color: "#e0654a" },
+  { id: "fb", name: "Englisch", color: "#3d5a80" },
+  { id: "fc", name: "Mathe", color: "#1f6e59" },
+];
+const SHELF = { 901: "fa", 908: "fa", 902: "fb", 909: "fb", 900: "fc", 910: "fc" };
 
 function cover(title, sub, color) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400">
@@ -57,6 +68,30 @@ function cover(title, sub, color) {
     <rect x="34" y="350" width="70" height="6" rx="3" fill="#fff" opacity=".5"/>
   </svg>`;
   return "data:image/svg+xml;base64," + Buffer.from(svg).toString("base64");
+}
+
+// Notes for page 12 of the free manual, in the page's own units (1000 wide).
+function sampleNotes() {
+  const ring = [];
+  for (let i = 0; i <= 26; i++) {
+    const a = (i / 26) * Math.PI * 2.1 - 1.2;
+    ring.push(Math.round((571 + 46 * Math.cos(a)) * 10) / 10, Math.round((414 + 40 * Math.sin(a)) * 10) / 10);
+  }
+  const wave = [];
+  for (let i = 0; i <= 22; i++) wave.push(120 + i * 13, Math.round((268 + 3.5 * Math.sin(i * 0.9)) * 10) / 10);
+  return {
+    v: 1,
+    pages: {
+      12: [
+        { id: "s1", t: "hl", c: "#ffd400", w: 18, p: [120, 152, 330, 152, 605, 153] },
+        { id: "s2", t: "pen", c: "#2456c7", w: 2.4, p: wave },
+        { id: "s3", t: "pen", c: "#d13a2c", w: 2.4, p: ring },
+        { id: "s4", t: "text", c: "#2456c7", s: 26, x: 122, y: 1090, text: "Favoriten: Stern auf dem Cover.\nBis Montag ausprobieren!" },
+      ],
+      20: [{ id: "s5", t: "text", c: "#1d1c1a", s: 18, x: 140, y: 300, text: "Für die Prüfung wichtig" }],
+    },
+    bookmarks: ["12", "31"],
+  };
 }
 
 app.whenReady().then(async () => {
@@ -98,32 +133,69 @@ app.whenReady().then(async () => {
 
     await js(`document.getElementById('guestBtn').click()`);
     await until(`!document.getElementById('library').hidden`);
-    const handbook = await js(`state.books.find((b) => /Handbuch/.test(b.title))`);
-    const samples = SAMPLES.map(([t, s, c], i) => ({ id: String(900 + i), title: t, cover: cover(t, s, c) }));
-    await js(`state.loggedIn = true; state.books = ${JSON.stringify(samples)}; show('library'); document.getElementById('guestNote').hidden = true; renderGrid();`);
+    const real = await js(`state.books`);
+    const handbook = real.find((b) => /Handbuch/.test(b.title));
+    const samples = SAMPLES.map(([t, s, c], i) => ({
+      id: String(900 + i), title: t, cover: cover(t, s, c), i, seen: 0,
+      progress: i === 3 ? { page: 120, total: 180 } : i === 5 ? { page: 34, total: 212 } : null,
+      pdf: i === 3 || i === 6, notes: i === 3 ? 5 : 0,
+    }));
+    const library = `state.loggedIn = true; state.books = ${JSON.stringify(samples)}; state.folders = ${JSON.stringify(FOLDERS)};
+      state.shelf = ${JSON.stringify(SHELF)}; document.getElementById('guestNote').hidden = true; show('library'); renderLibrary();`;
+    await js(library);
     await sleep(1200);
-    // Show one card the way it looks under the pointer.
-    await win.webContents.insertCSS(`.card.hover-shot .cover { transform: translateY(-3px) } .card.hover-shot .cover::after { opacity: 1; transform: none }`);
-    await js(`document.querySelectorAll('.card')[1].classList.add('hover-shot')`);
+    // Show one card and one folder the way they look under the pointer.
+    await win.webContents.insertCSS(`.card.hover-shot .cover { transform: translateY(-3px) } .card.hover-shot .cover::after { opacity: 1; transform: none }
+      .card.hover-shot .pick, .card.hover-shot .card-more { opacity: 1; transform: none }
+      .folder.hover-shot .folder-art { transform: translateY(-3px) } .folder.hover-shot .p1 { transform: rotate(-9deg) translateY(-7px) }
+      .folder.hover-shot .p2 { transform: rotate(1deg) translateY(-9px) } .folder.hover-shot .folder-more { opacity: 1 }`);
+    await js(`document.querySelectorAll('.card')[1].classList.add('hover-shot'); document.querySelectorAll('.folder')[0].classList.add('hover-shot')`);
     await shot("library");
 
-    await js(`openBook(${JSON.stringify(handbook)})`);
-    const end = Date.now() + 40000;
-    while (Date.now() < end) {
-      const g = guest();
-      if (g && (await g.executeJavaScript(`!!document.querySelector('[data-item=page-settings]')`).catch(() => false))) break;
-      await sleep(400);
-    }
+    // Picking several books, with the bar at the bottom.
+    await js(`state.selecting = true; state.selected = new Set(['903', '905', '906', '901', '908']); show('library'); renderLibrary(); document.getElementById('selectBtn').classList.add('on')`);
+    await sleep(600);
+    await shot("select");
+    await js(`setSelecting(false)`);
+
+    // The reader, with notes on the page and the table of contents open.
+    fs.mkdirSync(path.join(profile, "notes"), { recursive: true });
+    fs.writeFileSync(path.join(profile, "notes", `${handbook.id}.json`), JSON.stringify(sampleNotes()));
+    await js(`state.books.push(${JSON.stringify({ ...handbook, progress: { page: 12, total: 90 } })}); r.side = true; r.tab = 'toc'; openBook(bookById(${JSON.stringify(handbook.id)}))`);
+    guest()?.setZoomFactor(SCALE);
+    await until(`r.ready && r.page === '12' && r.toc.length > 0 && r.notes.length > 0`, 60000);
     guest().setZoomFactor(SCALE);
+    await js(`setTool('pen'); cmd('resize')`);
     await sleep(5000);
+    await js(`cmd('fit')`);
+    await sleep(2500);
     await shot("reader");
 
-    await js(`openSheet(state.reading)`);
+    await js(`r.tab = 'notes'; setTool('text'); renderReader()`);
     await sleep(600);
+    await shot("notes");
+
+    // Saving this book as PDF, with the page being saved.
+    await js(`setTool('hand'); setSide(false); openSheet(state.reading)`);
+    await sleep(900);
     await js(`document.getElementById('startBtn').click()`);
     await until(`/ (1[2-9]|[2-9]\\d) /.test(document.getElementById('runText').textContent)`, 120000);
     await sleep(500);
     await shot("pdf");
+    await js(`document.getElementById('cancelBtn').click()`);
+    await until(`!state.running`, 30000);
+    await js(`closeSheet(); closeBook()`);
+    await sleep(800);
+
+    // Several books, one after the other (the free magazines).
+    const magazines = real.filter((b) => /Magazin/.test(b.title));
+    await js(`${library} state.shelf = Object.assign(state.shelf, ${JSON.stringify(Object.fromEntries(magazines.map((m) => [m.id, "fa"])))});
+      state.books = state.books.concat(${JSON.stringify(magazines)}); state.folder = null; renderLibrary();
+      openBatch([bookById('903'), ...${JSON.stringify(magazines)}.map((m) => bookById(m.id)), bookById('905')].filter(Boolean).slice(1, 3).concat([bookById('903'), bookById('905'), bookById('906')]))`);
+    await sleep(700);
+    await js(`document.getElementById('startBtn').click()`);
+    await until(`[...document.querySelectorAll('.brow')].some((row) => row.classList.contains('ok')) && [...document.querySelectorAll('.brow.run')].some((row) => /^(\\d+) \\//.test(row.lastChild.textContent) && +RegExp.$1 > 6)`, 240000);
+    await shot("batch");
     await js(`document.getElementById('cancelBtn').click()`);
     await sleep(3000);
   } catch (e) {

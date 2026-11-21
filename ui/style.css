@@ -348,13 +348,15 @@ button:focus-visible {
 
 .lib-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px 16px;
   margin-bottom: 22px;
 }
 
 .lib-title {
+  flex: 1 1 220px;
   min-width: 0;
 }
 

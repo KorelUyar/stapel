@@ -53,11 +53,14 @@
     // Edubase answers a book it will not open with a message box ("no read rights").
     const box = q(".modal.show");
     state.blocked = !state.ready && !!box && getComputedStyle(box).display !== "none";
+    // Books in edubase's other format (flowing text instead of pages) are not for this reader.
+    state.unsupported = !state.ready && q("#readmodeAppAside")?.dataset.htmlReader === "true";
     const s = JSON.stringify(state);
     if (s !== lastState) {
       lastState = s;
       post("state", state);
     }
+    if (state.ready && fitted === null) fitted = looksFitted();
     if (state.ready && tocFor !== state.id) {
       // Edubase fills its table of contents a moment after the first page.
       if (readySince.id !== state.id) readySince = { id: state.id, at: Date.now() };
@@ -225,6 +228,27 @@
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
 
+  // A highlighter line that was meant to be straight becomes straight, and a nearly level
+  // one level: marking a line of text by hand always wobbles a little.
+  function straighten(p) {
+    if (p.length < 6) return p;
+    const [x0, y0] = p;
+    const x1 = p[p.length - 2];
+    const y1 = p[p.length - 1];
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    if (len < 30) return p;
+    let off = 0;
+    let sum = 0;
+    for (let i = 0; i < p.length; i += 2) {
+      off = Math.max(off, distToSegment(p[i], p[i + 1], x0, y0, x1, y1));
+      sum += p[i + 1];
+    }
+    if (off > Math.max(5, len * 0.04)) return p;
+    if (Math.abs(y1 - y0) > len * 0.05) return [x0, y0, x1, y1];
+    const y = ink.r(sum / (p.length / 2));
+    return [x0, y, x1, y];
+  }
+
   function hits(svg, it, x, y, reach) {
     if (it.t === "text") {
       const div = q(`foreignObject[data-id="${it.id}"] .stapel-text`, svg);
@@ -342,6 +366,7 @@
         const { item } = stroke;
         stroke = null;
         if (e.type === "pointercancel") return redraw();
+        if (item.t === "hl") item.p = straighten(item.p);
         setItems(page(), [...(book.pages[page()] || []), item]);
       } else if (erased) {
         const left = erased;
@@ -444,13 +469,13 @@
         post("key", "find");
       } else if (mod && (e.key === "+" || e.key === "=")) {
         e.preventDefault();
-        click("[data-action=incrementZoom]");
+        zoom("in");
       } else if (mod && e.key === "-") {
         e.preventDefault();
-        click("[data-action=decrementZoom]");
+        zoom("out");
       } else if (mod && e.key === "0") {
         e.preventDefault();
-        click("[data-action=fitPage]");
+        zoom("fit");
       } else if (e.key === "Escape") {
         post("key", "escape");
       }
@@ -478,7 +503,7 @@
         take();
         if (now - lastZoom > 220 && Math.abs(e.deltaY) > 2) {
           lastZoom = now;
-          click(e.deltaY < 0 ? "[data-action=incrementZoom]" : "[data-action=decrementZoom]");
+          zoom(e.deltaY < 0 ? "in" : "out");
         }
         return;
       }
@@ -506,15 +531,38 @@
     { capture: true, passive: false },
   );
 
+  // ------------------------------------------------------------ zoom
+
+  // Edubase keeps its zoom when the window changes size. A page that was fitted to the window
+  // should stay fitted, so the app fits it again; a zoom the user chose is left alone.
+  let fitted = null; // unknown until the first page is there
+  const zoom = (how) => {
+    fitted = how === "fit";
+    click({ in: "[data-action=incrementZoom]", out: "[data-action=decrementZoom]", fit: "[data-action=fitPage]" }[how]);
+  };
+  const looksFitted = () => {
+    const pages = q(".lu-doc-pages")?.getBoundingClientRect();
+    const box = q("#readmodeAppBody")?.getBoundingClientRect();
+    return !!pages && !!box && pages.height <= box.height + 3 && pages.width <= box.width + 3;
+  };
+  let refit = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(refit);
+    refit = setTimeout(() => {
+      if (fitted === null) fitted = looksFitted();
+      if (fitted) click("[data-action=fitPage]");
+    }, 260);
+  });
+
   // ------------------------------------------------------------ commands from the app
 
   const commands = {
     go,
     next,
     prev,
-    zoomIn: () => click("[data-action=incrementZoom]"),
-    zoomOut: () => click("[data-action=decrementZoom]"),
-    fit: () => click("[data-action=fitPage]"),
+    zoomIn: () => zoom("in"),
+    zoomOut: () => zoom("out"),
+    fit: () => zoom("fit"),
     spread: () => {
       // One page or two: afterwards the page should fit the window again.
       const was = q("#docPageMode i")?.className;
@@ -524,7 +572,7 @@
         const changed = q("#docPageMode i")?.className !== was;
         if (!changed && Date.now() - started < 4000) return;
         clearInterval(timer);
-        if (changed) setTimeout(() => click("[data-action=fitPage]"), 250);
+        if (changed) setTimeout(() => zoom("fit"), 250);
       }, 100);
     },
     tool: setTool,

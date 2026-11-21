@@ -88,7 +88,10 @@ function renderLibrary() {
   const row = $("folders");
   row.replaceChildren();
   row.hidden = !!folder || !!q || !state.folders.length;
-  if (!row.hidden) for (const f of state.folders) row.append(folderTile(f));
+  if (!row.hidden) {
+    const byName = (a, b) => a.name.localeCompare(b.name, LANG, { numeric: true });
+    for (const f of state.folders.slice().sort(byName)) row.append(folderTile(f));
+  }
 
   const grid = $("grid");
   grid.replaceChildren();
@@ -153,6 +156,7 @@ function bookCard(book, i, showFolder) {
   };
 
   const title = el("div", "card-title", book.title);
+  title.title = book.title;
   const meta = el("div", "card-meta");
   const folder = showFolder && folderById(state.shelf[book.id]);
   if (folder) {
@@ -398,7 +402,7 @@ function renderLibraryKeepingPop() {
 
 function folderChoices(ids, current) {
   const items = [{ head: t("moveTo") }];
-  for (const f of state.folders) {
+  for (const f of state.folders.slice().sort((a, b) => a.name.localeCompare(b.name, LANG, { numeric: true }))) {
     items.push({ label: f.name, dot: f.color, checked: current === f.id, onClick: () => moveBooks(ids, f.id) });
   }
   items.push({ label: t("newFolder"), icon: "folderPlus", onClick: () => createFolder(ids) });

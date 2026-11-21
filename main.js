@@ -359,7 +359,8 @@ ipcMain.on("reader-event", (e, type, data) => {
 ipcMain.handle("reader-cmd", (_e, name, arg) => reader.cmd(String(name), arg));
 ipcMain.handle("notes", (_e, id) => reader.summary(String(id)));
 ipcMain.handle("bookmark", (_e, id, page) => reader.toggleBookmark(String(id), String(page)));
-ipcMain.handle("set-classic", (_e, on) => {
-  writeSettings({ classic: on === true });
+// persist false: only until the app is closed (a book the app's reader cannot show).
+ipcMain.handle("set-classic", (_e, on, persist) => {
+  if (persist !== false) writeSettings({ classic: on === true });
   reader.setClassic(on === true);
 });

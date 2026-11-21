@@ -177,6 +177,7 @@ function onEvent(type, data) {
       canRedo: data.canRedo === true,
       ready: data.ready === true,
       blocked: data.blocked === true,
+      unsupported: data.unsupported === true,
     });
   } else if (type === "toc") {
     if (!data || !isId(data.id) || !Array.isArray(data.items)) return;

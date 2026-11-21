@@ -23,6 +23,12 @@
   margin-right: 0 !important;
 }
 
+/* A little air above and below the page, so it does not touch the app's bars. */
+#pdfReaderViewContainer {
+  box-sizing: border-box !important;
+  padding: 10px 0 !important;
+}
+
 html,
 body,
 main,

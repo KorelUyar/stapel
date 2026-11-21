@@ -1,7 +1,7 @@
 {
   "name": "stapel",
-  "version": "1.1.0",
-  "description": "Your Edubase school books in their own window, with PDF export (macOS and Windows)",
+  "version": "1.2.0",
+  "description": "Your Edubase school books in their own app: folders, notes on the pages, PDF export (macOS and Windows)",
   "main": "main.js",
   "author": "Korel Uyar",
   "license": "GPL-3.0",

@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld("app", {
   reader: (name, arg) => ipcRenderer.invoke("reader-cmd", name, arg),
   notes: (id) => ipcRenderer.invoke("notes", id),
   bookmark: (id, page) => ipcRenderer.invoke("bookmark", id, page),
-  setClassic: (on) => ipcRenderer.invoke("set-classic", on),
+  setClassic: (on, persist) => ipcRenderer.invoke("set-classic", on, persist),
   onReader: (cb) => ipcRenderer.on("reader", (_e, type, data) => cb(type, data)),
   onProgress: (cb) => ipcRenderer.on("progress", (_e, p) => cb(p)),
 });

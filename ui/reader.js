@@ -31,6 +31,7 @@ const r = {
   tab: "toc",
   side: false,
   classic: false,
+  fallback: false, // edubase's own view for this book only, because the app's reader cannot show it
   failed: false,
   timer: null,
 };
@@ -82,6 +83,12 @@ function closeBook() {
   view.src = "about:blank";
   state.reading = null;
   r.ready = false;
+  if (r.fallback) {
+    r.fallback = false;
+    r.classic = false;
+    window.app.setClassic(false, false);
+    document.documentElement.classList.remove("classic");
+  }
   show(state.books.length ? "library" : "welcome");
   if (state.screen === "library") {
     renderLibrary();
@@ -97,7 +104,16 @@ function coverReader(on, failed = false) {
   $("readerCover").classList.toggle("failed", failed);
   $("readerCoverText").textContent = failed ? t("err.noaccess") : t("opening");
   $("readerRetryBtn").hidden = !failed;
-  if (on && !failed) r.timer = setTimeout(() => coverReader(true, true), 45000);
+  // No page after half a minute: edubase did not answer, or the book is of a kind this
+  // reader does not know. Then edubase's own view is better than nothing.
+  if (on && !failed) r.timer = setTimeout(() => (r.id ? fallBack() : coverReader(true, true)), 30000);
+}
+
+function fallBack() {
+  if (r.classic || !state.reading) return;
+  r.fallback = true;
+  toast(t("fallbackNote"));
+  setClassic(true, false);
 }
 
 $("readerRetryBtn").onclick = () => {
@@ -122,6 +138,7 @@ window.app.onReader((type, data) => {
     if (state.reading && !state.reading.title && data.title) state.reading.title = data.title;
     $("barTitle").textContent = state.reading?.title || data.title || "";
     if (!r.ready && data.blocked && !r.failed) coverReader(true, true);
+    if (!r.ready && data.unsupported) return fallBack();
     if (r.ready && !wasReady) {
       coverReader(false);
       sendTool();
@@ -409,9 +426,10 @@ $("moreBtn").onclick = () => {
 
 // Edubase's own interface instead of the app's: the way out if edubase changes its pages
 // and the app's reader stops working.
-async function setClassic(on) {
+async function setClassic(on, persist = true) {
   r.classic = on;
-  await window.app.setClassic(on);
+  if (persist) r.fallback = false;
+  await window.app.setClassic(on, persist);
   renderReader();
   if (state.reading) {
     coverReader(!on);
