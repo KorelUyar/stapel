@@ -66,8 +66,10 @@ function openBook(book) {
   show("reader");
   renderReader();
   coverReader(true);
-  const start = book.progress && book.progress.page > 1 ? `/${book.progress.page}` : "";
-  view.src = `${EDUBASE}#doc/${book.id}${start}`;
+  // Always with a page: without one edubase opens where it last saw the book, and that is
+  // the last page after the book was saved as PDF.
+  const start = book.progress && book.progress.page > 1 ? book.progress.page : 1;
+  view.src = `${EDUBASE}#doc/${book.id}/${start}`;
 }
 
 function closeBook() {
@@ -437,7 +439,7 @@ async function setClassic(on, persist = true) {
   renderReader();
   if (state.reading) {
     coverReader(!on);
-    const at = pageNumber() ? `/${pageNumber()}` : "";
+    const at = `/${pageNumber() || (state.reading.progress && state.reading.progress.page) || 1}`;
     const id = state.reading.id;
     view.src = "about:blank";
     setTimeout(() => {
@@ -457,9 +459,9 @@ document.addEventListener("keydown", (e) => {
     openFind();
   } else if (typing) {
     return;
-  } else if (mod && e.key.toLowerCase() === "z") {
+  } else if (mod && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
     e.preventDefault();
-    cmd(e.shiftKey ? "redo" : "undo");
+    cmd(e.shiftKey || e.key.toLowerCase() === "y" ? "redo" : "undo");
   } else if (mod && (e.key === "+" || e.key === "=")) {
     e.preventDefault();
     cmd("zoomIn");

@@ -46,9 +46,21 @@ main,
   box-shadow: 0 0 0 4px rgb(40 30 10 / 0.05), 0 12px 60px rgb(40 30 10 / 0.16);
 }
 
+.iScrollVerticalScrollbar {
+  width: 5px !important;
+  right: 3px !important;
+}
+.iScrollHorizontalScrollbar {
+  height: 5px !important;
+  bottom: 3px !important;
+}
 .iScrollIndicator {
   background: rgb(60 50 30 / 0.28) !important;
   border: 0 !important;
+  border-radius: 3px !important;
+}
+body.stapel-fits .iScrollLoneScrollbar {
+  display: none !important;
 }
 
 @media (prefers-color-scheme: dark) {

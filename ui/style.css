@@ -2036,6 +2036,12 @@ input[type="range"]:disabled {
   padding-left: 18px;
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 150px)) + 12px);
 }
+/* The sheet's top right corner would lie under those buttons: a click on its close button
+   would close the app. */
+.win .sheet {
+  top: 66px;
+  max-height: calc(100% - 78px);
+}
 .win .welcome h1,
 .win .lib-head h2,
 .win .sheet h3 {

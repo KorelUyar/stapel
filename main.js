@@ -22,10 +22,18 @@ function readSettings() {
   }
 }
 
+// Written to a second file first and then swapped in, so a crash in the middle of a write
+// cannot leave half a file (folders and reading positions live here).
 function writeSettings(patch) {
   const next = { ...readSettings(), ...patch };
-  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
-  fs.writeFileSync(settingsFile(), JSON.stringify(next, null, 2));
+  try {
+    fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+    const tmp = settingsFile() + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+    fs.renameSync(tmp, settingsFile());
+  } catch {
+    // A full or read-only disk must not take the app down; the setting is lost, nothing else.
+  }
   return next;
 }
 
@@ -151,7 +159,17 @@ app.on("web-contents-created", (_e, contents) => {
   }
 });
 
+// One Stapel at a time: two would write the same settings and notes over each other.
+const single = app.requestSingleInstanceLock();
+if (!single) app.quit();
+app.on("second-instance", () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+});
+
 app.whenReady().then(() => {
+  if (!single) return;
   // Windows and Linux get no menu bar; copy, paste and the rest work without it there.
   if (!isMac) Menu.setApplicationMenu(null);
   edubase.init();
@@ -179,9 +197,27 @@ const wrap = (fn) => async (_e, ...args) => {
   }
 };
 
-ipcMain.handle("status", wrap(() => edubase.status()));
+// The hidden edubase window does one thing at a time. Looking at the library waits for
+// nothing but itself; a PDF job waits until a library load has finished; and while a PDF job
+// runs, the library is not loaded and nobody is signed out.
+let looking = Promise.resolve();
+const look = (fn) => {
+  if (job) throw new Error("busy");
+  const run = looking.then(fn, fn);
+  looking = run.catch(() => {});
+  return run;
+};
+
+ipcMain.handle("status", wrap(() => look(() => edubase.status())));
 ipcMain.handle("login", wrap(() => edubase.login(win, readSettings().lang)));
-ipcMain.handle("logout", wrap(() => edubase.logout()));
+ipcMain.handle(
+  "logout",
+  wrap(async () => {
+    if (job) throw new Error("busy");
+    await looking;
+    return edubase.logout();
+  }),
+);
 
 ipcMain.handle(
   "library",
@@ -190,7 +226,7 @@ ipcMain.handle(
     const recent = settings.recent || {};
     const pdfs = settings.pdfs || {};
     const notes = reader.counts();
-    const books = await edubase.library();
+    const books = await look(() => edubase.library());
     // Edubase's order is kept in `i`; the interface sorts.
     return books.map((b, i) => ({
       ...b,
@@ -266,6 +302,7 @@ ipcMain.handle(
     if (!book || !isBookId(String(book.id))) throw new Error("noaccess");
     job = { token: { cancelled: false } };
     try {
+      await looking;
       const result = await saveBook(book, outputDir(), sendProgress, job.token);
       lastPdf = result.path;
       return result;
@@ -286,6 +323,7 @@ ipcMain.handle(
     const { folders, shelf } = readShelf();
     const results = [];
     try {
+      await looking;
       for (let index = 0; index < list.length; index++) {
         const book = list[index];
         const id = String(book.id);
@@ -353,7 +391,11 @@ ipcMain.handle("open-book-pdf", (_e, id) => {
 ipcMain.on("reader-event", (e, type, data) => {
   if (e.sender.getType() !== "webview" || !e.senderFrame || e.senderFrame !== e.sender.mainFrame) return;
   if (!e.senderFrame.url.startsWith(EDUBASE)) return;
-  reader.onEvent(type, data);
+  try {
+    reader.onEvent(type, data);
+  } catch {
+    // Whatever a web page sends must not stop the app.
+  }
 });
 
 ipcMain.handle("reader-cmd", (_e, name, arg) => reader.cmd(String(name), arg));

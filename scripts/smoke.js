@@ -67,15 +67,15 @@ app.whenReady().then(async () => {
     fs.existsSync(dir)
       ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? pdfFiles(path.join(dir, e.name)) : e.name.endsWith(".pdf") ? [path.join(dir, e.name)] : []))
       : [];
-  const { PDFDocument } = require(path.join(appDir, "node_modules", "pdf-lib"));
-  const pageCount = async (file) => (await PDFDocument.load(fs.readFileSync(file))).getPageCount();
+  const { PDFDocument, PDFName, PDFDict } = require(path.join(appDir, "node_modules", "pdf-lib"));
 
   try {
     check("platform", true, `${process.platform} ${process.arch}, Electron ${process.versions.electron}`);
     check("welcome screen", await until(`${vis("welcome")}`, 60000));
     await sleep(1000);
     await shot("1-welcome");
-    check("paste hint fits the platform", true, await js(`t("pasteHint")`));
+    const hint = await js(`t("pasteHint")`);
+    check("paste hint fits the platform", hint.includes(process.platform === "darwin" ? "⌘V" : "Ctrl+V"), hint);
 
     await js(`document.getElementById('guestBtn').click()`);
     check("library with free books", await until(`${vis("library")} && document.querySelectorAll('.card').length > 0`, 60000),
@@ -104,7 +104,9 @@ app.whenReady().then(async () => {
     const opened = await until(`r.ready`, 90000);
     check("book opens in the app's reader", opened, await js(`JSON.stringify({ page: r.page, total: r.total, zoom: r.zoom })`));
     await sleep(2500);
-    check("edubase's own bars are hidden", await gjs(`['#readmodeAppHeader', '#readmodeAppFooter', '#readmodeAppAside'].every((s) => { const e = document.querySelector(s); return !e || getComputedStyle(e).display === 'none'; })`));
+    // The bars must still be there under these names, and hidden: if edubase renames them,
+    // this fails instead of passing over nothing.
+    check("edubase's own bars are hidden", await gjs(`['#readmodeAppHeader', '#readmodeAppFooter', '#readmodeAppAside'].every((s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display === 'none'; })`));
     check("table of contents", await until(`r.toc.length > 0`, 15000), await js(`r.toc.length + " entries"`));
     await js(`cmd('go', '5')`);
     check("go to page 5", await until(`r.page === '5'`, 15000));
@@ -129,9 +131,28 @@ app.whenReady().then(async () => {
     const notes = fs.existsSync(notesFile) ? JSON.parse(fs.readFileSync(notesFile, "utf8")) : {};
     check("pen and text are saved", notes.pages?.["5"]?.length === 2, JSON.stringify((notes.pages?.["5"] || []).map((i) => i.t)));
     await js(`cmd('undo')`);
-    await until(`r.notes.some((n) => n.page === '5' && n.texts.length === 0)`, 5000);
+    const undone = await until(`r.notes.some((n) => n.page === '5' && n.texts.length === 0 && n.strokes === 1)`, 5000);
     await js(`cmd('redo')`);
-    check("undo and redo", await until(`r.notes.some((n) => n.page === '5' && n.texts.length === 1)`, 5000));
+    check("undo and redo", undone && (await until(`r.notes.some((n) => n.page === '5' && n.texts.length === 1)`, 5000)));
+
+    // highlighter (a wobbly line becomes level) and eraser, on the same page
+    await js(`setTool('hl')`);
+    await sleep(300);
+    await drag([at(0.15, 0.6), at(0.3, 0.603), at(0.45, 0.598), at(0.6, 0.601)]);
+    await until(`r.notes.some((n) => n.page === '5' && n.strokes === 2)`, 5000);
+    const marker = (JSON.parse(fs.readFileSync(notesFile, "utf8")).pages["5"] || []).find((i) => i.t === "hl");
+    check("highlighter line is straightened", !!marker && marker.p.length === 4 && marker.p[1] === marker.p[3], marker ? JSON.stringify(marker.p) : "no highlighter line saved");
+    await js(`setTool('eraser')`);
+    await sleep(300);
+    await drag([at(0.35, 0.55), at(0.36, 0.6), at(0.37, 0.65)]);
+    check("eraser removes the highlighter line only", await until(`r.notes.some((n) => n.page === '5' && n.strokes === 1 && n.texts.length === 1)`, 5000));
+    // a line that runs off the page is still saved
+    await js(`setTool('pen')`);
+    await sleep(300);
+    await drag([at(0.3, 0.9), at(0.1, 0.9), at(-0.4, 0.9), at(0.2, 0.92)]);
+    check("a line that leaves the page is saved", await until(`r.notes.some((n) => n.page === '5' && n.strokes === 2)`, 5000),
+      JSON.stringify((JSON.parse(fs.readFileSync(notesFile, "utf8")).pages["5"] || []).map((i) => i.t)));
+    await js(`setTool('hand')`);
     await js(`document.getElementById('markBtn').click()`);
     check("bookmark", await until(`r.marks.includes('5')`, 5000));
     await js(`setSide(true, 'notes')`);
@@ -140,6 +161,22 @@ app.whenReady().then(async () => {
 
     await js(`cmd('next')`);
     check("next page", await until(`r.page === '6'`, 15000));
+    // a real key press inside the page, and two pages side by side
+    await js(`setSide(false)`);
+    await sleep(1200);
+    mouse("mouseDown", 20, 20);
+    mouse("mouseUp", 20, 20);
+    guest().sendInputEvent({ type: "keyDown", keyCode: "Left" });
+    guest().sendInputEvent({ type: "keyUp", keyCode: "Left" });
+    const keyed = await until(`r.page === '5'`, 8000);
+    guest().sendInputEvent({ type: "keyDown", keyCode: "Right" });
+    guest().sendInputEvent({ type: "keyUp", keyCode: "Right" });
+    check("arrow keys turn the page", keyed && (await until(`r.page === '6'`, 8000)), await js(`r.page`));
+    await js(`cmd('spread')`);
+    const two = await until(`r.double && r.pages.length === 2`, 10000);
+    await sleep(1500);
+    check("two pages side by side, fitted to the window", two && (await gjs(`(() => { const p = document.querySelector('.lu-doc-pages').getBoundingClientRect(); const b = document.querySelector('#readmodeAppBody').getBoundingClientRect(); return p.width <= b.width + 3 && p.height <= b.height + 3; })()`)),
+      await js(`r.pages.join(' and ')`));
     await js(`document.getElementById('findInput').value = 'Passwort'; document.getElementById('findForm').requestSubmit()`);
     check("search in the book", (await until(`r.find && !r.find.busy`, 30000)) && (await js(`r.find.items.length > 0`)), await js(`r.find && r.find.items.length + " pages"`));
 
@@ -153,16 +190,31 @@ app.whenReady().then(async () => {
     await shot("4-saving");
     const done = await until(`${vis("stateDone")} || ${vis("stateFail")}`, 180000);
     const text = await js(`document.getElementById('doneText').textContent || document.getElementById('failText').textContent`);
-    check("save 3 pages as PDF", done && (await js(vis("stateDone"))), text);
+    check("save 3 pages as PDF (while two pages are on screen)", done && (await js(vis("stateDone"))), text);
     await sleep(600);
     await shot("5-saved");
     const single = pdfFiles(path.join(out, "downloads"));
     if (single.length) {
       const bytes = fs.readFileSync(single[0]);
-      check("PDF has 3 pages", (await pageCount(single[0])) === 3, `${path.basename(single[0])}: ${bytes.length} bytes`);
+      const doc = await PDFDocument.load(bytes);
+      check("PDF has 3 pages", doc.getPageCount() === 3, `${path.basename(single[0])}: ${bytes.length} bytes`);
+      // The book's own letters are shapes. The typed note is real text, so the page with the
+      // note carries more (a font) than its neighbours: that is how the note is found here.
+      const weight = doc.getPages().map((page) => {
+        const res = page.node.Resources();
+        const count = (name) => {
+          const d = res && res.lookup(PDFName.of(name));
+          return d instanceof PDFDict ? d.keys().length : 0;
+        };
+        return count("Font") + count("XObject");
+      });
+      check("the notes are printed on their page", weight.length === 3 && weight[1] > weight[0] && weight[1] > weight[2], `fonts and pictures per page: ${weight.join(", ")}`);
     } else check("PDF file written", false);
+    check("two pages are back after the PDF", await js(`r.double`));
+    await js(`document.getElementById('closeSheet').click(); cmd('spread')`);
+    await until(`!r.double`, 10000);
 
-    await js(`document.getElementById('closeSheet').click(); document.querySelector('#langSwitch [data-lang=de]').click()`);
+    await js(`setLanguage('de')`);
     await sleep(400);
     check("German", (await js(`document.querySelector('#pdfBtn span').textContent`)) === "Als PDF speichern");
     await js(`document.getElementById('backBtn').click()`);

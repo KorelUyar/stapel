@@ -29,35 +29,56 @@ const notesDir = () => path.join(app.getPath("userData"), "notes");
 const notesFile = (id) => path.join(notesDir(), `${id}.json`);
 
 function load(id) {
-  if (!isId(id)) return { pages: {}, bookmarks: [] };
+  const empty = () => ({ pages: Object.create(null), bookmarks: [] });
+  if (!isId(id)) return empty();
+  let text;
   try {
-    const d = JSON.parse(fs.readFileSync(notesFile(id), "utf8"));
+    text = fs.readFileSync(notesFile(id), "utf8");
+  } catch {
+    return empty(); // no notes yet
+  }
+  try {
+    const d = JSON.parse(text);
     return { pages: cleanPages(d.pages), bookmarks: cleanBookmarks(d.bookmarks) };
   } catch {
-    return { pages: {}, bookmarks: [] };
+    // A file that cannot be read is put aside, not overwritten: the next save would
+    // otherwise keep one page and lose the rest.
+    try {
+      fs.renameSync(notesFile(id), `${notesFile(id)}.broken-${Date.now()}`);
+    } catch {}
+    return empty();
   }
 }
 
 function save(id, data) {
-  if (!isId(id)) return;
+  if (!isId(id)) return false;
   const empty = !Object.keys(data.pages).length && !data.bookmarks.length;
-  if (empty) return fs.rmSync(notesFile(id), { force: true });
+  if (empty) {
+    fs.rmSync(notesFile(id), { force: true });
+    noteCounts?.delete(id);
+    return true;
+  }
+  const json = JSON.stringify({ v: 1, pages: data.pages, bookmarks: data.bookmarks });
+  if (json.length > 40_000_000) return false; // no book of notes is this large
   fs.mkdirSync(notesDir(), { recursive: true });
   const tmp = notesFile(id) + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify({ v: 1, ...data }));
+  fs.writeFileSync(tmp, json);
   fs.renameSync(tmp, notesFile(id));
+  noteCounts?.set(id, Object.values(data.pages).reduce((n, p) => n + p.length, 0));
+  return true;
 }
 
 // Notes arrive from a web page. Keep only what has exactly the expected shape.
 const num = (v, min, max) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
-const pageKey = (p) => (typeof p === "string" || typeof p === "number") && /^[\w.\-]{1,24}$/.test(String(p));
+// A page's name: a number, or a label such as "IV" or "12a". Starts with a letter or a digit.
+const pageKey = (p) => (typeof p === "string" || typeof p === "number") && /^[0-9A-Za-z][\w.\-]{0,23}$/.test(String(p));
 
 function cleanItem(it) {
   if (!it || typeof it !== "object") return null;
   if (typeof it.id !== "string" || !/^[\w-]{1,32}$/.test(it.id)) return null;
   if (typeof it.c !== "string" || !/^#[0-9a-f]{6}$/i.test(it.c)) return null;
   if (it.t === "pen" || it.t === "hl") {
-    if (!num(it.w, 0.2, 60) || !Array.isArray(it.p) || it.p.length < 2 || it.p.length > 20000 || it.p.length % 2) return null;
+    if (!num(it.w, 0.2, 60) || !Array.isArray(it.p) || it.p.length < 2 || it.p.length > 6000 || it.p.length % 2) return null;
     if (!it.p.every((v) => num(v, -200, 6000))) return null;
     return { id: it.id, t: it.t, c: it.c.toLowerCase(), w: it.w, p: it.p };
   }
@@ -69,12 +90,25 @@ function cleanItem(it) {
   return null;
 }
 
-const cleanItems = (items) => (Array.isArray(items) ? items.slice(0, 3000).map(cleanItem).filter(Boolean) : []);
+// One page: at most 2000 notes and about 3 MB, far more than a hand can draw on a page.
+function cleanItems(items) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  let size = 0;
+  for (const raw of items.slice(0, 2000)) {
+    const it = cleanItem(raw);
+    if (!it) continue;
+    size += it.t === "text" ? it.text.length + 80 : it.p.length * 7 + 80;
+    if (size > 3_000_000) break;
+    out.push(it);
+  }
+  return out;
+}
 
 function cleanPages(pages) {
-  const out = {};
+  const out = Object.create(null); // page names come from outside: no inherited keys
   if (!pages || typeof pages !== "object") return out;
-  for (const key of Object.keys(pages).slice(0, 5000)) {
+  for (const key of Object.keys(pages).slice(0, 3000)) {
     if (!pageKey(key)) continue;
     const items = cleanItems(pages[key]);
     if (items.length) out[key] = items;
@@ -107,20 +141,24 @@ function toggleBookmark(id, page) {
   return summary(id);
 }
 
-// Which books have notes at all (for the library and the PDF sheet).
+// Which books have notes at all (for the library and the PDF sheet). Read from disk once,
+// then kept up to date by save().
+let noteCounts = null;
 function counts() {
-  const out = {};
-  let files = [];
-  try {
-    files = fs.readdirSync(notesDir());
-  } catch {}
-  for (const f of files) {
-    const m = f.match(/^(\d+)\.json$/);
-    if (!m) continue;
-    const n = Object.values(load(m[1]).pages).reduce((a, p) => a + p.length, 0);
-    if (n) out[m[1]] = n;
+  if (!noteCounts) {
+    noteCounts = new Map();
+    let files = [];
+    try {
+      files = fs.readdirSync(notesDir());
+    } catch {}
+    for (const f of files) {
+      const m = f.match(/^(\d+)\.json$/);
+      if (!m) continue;
+      const n = Object.values(load(m[1]).pages).reduce((a, p) => a + p.length, 0);
+      if (n) noteCounts.set(m[1], n);
+    }
   }
-  return out;
+  return Object.fromEntries([...noteCounts].filter(([, n]) => n > 0));
 }
 
 // ---------------------------------------------------------------- the page in the webview
@@ -146,16 +184,30 @@ function cmd(name, arg) {
   return run(`window.__stapel ? window.__stapel.cmd(${JSON.stringify(name)}, ${JSON.stringify(arg ?? null)}) : false`);
 }
 
+// The book the webview shows, from its address. The page may only speak about this one.
+function openId() {
+  const m = guest && !guest.isDestroyed() ? guest.getURL().match(/#doc\/(\d+)/) : null;
+  return m ? m[1] : null;
+}
+
 // Messages from the page. `sender` is checked by the caller to be the webview.
-function onEvent(type, data) {
+function onEvent(type, data, again = false) {
   if (classic) return;
+  const open = openId();
+  // The page can know about a new book a moment before the main process has heard of the
+  // new address: look once more before letting the message go.
+  const about = type === "need-ink" ? data : data && data.id;
+  if (!again && isId(about) && about !== open && ["need-ink", "ink", "state"].includes(type)) {
+    setTimeout(() => onEvent(type, data, true), 250);
+    return;
+  }
   if (type === "need-ink") {
-    if (!isId(data)) return;
+    if (!isId(data) || data !== open) return;
     const pages = load(data).pages;
     run(`window.__stapel && window.__stapel.cmd("ink", ${JSON.stringify({ id: data, pages })})`);
     notify("notes", summary(data));
   } else if (type === "ink") {
-    if (!data || !isId(data.id) || !pageKey(data.page)) return;
+    if (!data || !isId(data.id) || data.id !== open || !pageKey(data.page)) return;
     const all = load(data.id);
     const items = cleanItems(data.items);
     if (items.length) all.pages[String(data.page)] = items;
@@ -165,6 +217,7 @@ function onEvent(type, data) {
   } else if (type === "state") {
     if (!data || typeof data !== "object") return;
     const s = (v, n) => (typeof v === "string" ? v.slice(0, n) : "");
+    if (data.id && data.id !== open) return;
     notify("state", {
       id: isId(data.id) ? data.id : null,
       page: pageKey(data.page) ? String(data.page) : null,

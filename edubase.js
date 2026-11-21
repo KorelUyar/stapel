@@ -281,7 +281,7 @@ function safeName(name, fallback = "Edubase-Buch") {
     .slice(0, 150)
     .replace(/^[. ]+/, "")
     .replace(/[. ]+$/, "");
-  return !clean || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(clean) ? fallback : clean;
+  return !clean || /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(clean) ? fallback : clean;
 }
 
 function freePath(dir, name) {
@@ -394,7 +394,8 @@ async function download(job, onProgress, token) {
 
       if (ink) {
         const page = (await readPager()).page;
-        await js(`window.__stapelInk.drawPage(${JSON.stringify(page)}, ${JSON.stringify(ink[page] || [])})`);
+        const items = Object.prototype.hasOwnProperty.call(ink, page) ? ink[page] : [];
+        await js(`window.__stapelInk.drawPage(${JSON.stringify(page)}, ${JSON.stringify(items)})`);
       }
 
       const pdf = await getWorker().webContents.printToPDF({

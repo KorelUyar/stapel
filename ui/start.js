@@ -26,12 +26,18 @@ $("guestBtn").onclick = () => loadLibrary();
 
 $("logoutBtn").onclick = async () => {
   view.src = "about:blank";
-  await window.app.logout();
+  try {
+    await window.app.logout();
+  } catch (err) {
+    return toast(errorText(err));
+  }
   state.loggedIn = false;
   state.books = [];
   state.folder = null;
   state.selecting = false;
   state.selected.clear();
+  $("selectBtn").classList.remove("on");
+  $("search").value = "";
   show("welcome");
 };
 

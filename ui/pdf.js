@@ -5,9 +5,15 @@ function sheetState(name) {
   $("sheet").classList.toggle("done", name === "Done" && !state.batch);
 }
 
+// While the sheet is open, nothing behind it can be reached, with the keyboard either.
+function behindSheet(inert) {
+  for (const node of document.querySelectorAll(".bar, .screen, .selbar")) node.inert = inert;
+}
+
 function showSheet() {
   $("scrim").hidden = false;
   $("sheet").hidden = false;
+  behindSheet(true);
   closePop();
 }
 
@@ -32,6 +38,7 @@ async function openSheet(book) {
   $("notesCheck").checked = true;
   $("startBtn").textContent = t("saveButton");
   $("openBtn").textContent = t("openPdf");
+  $("revealBtn").hidden = false;
   setRange("all");
   await refreshFolder();
   sheetState("Idle");
@@ -68,6 +75,7 @@ async function openBatch(books) {
   $("byFolderCheck").checked = true;
   $("startBtn").textContent = t("saveNPdfs", books.length);
   $("openBtn").textContent = t("reveal");
+  $("revealBtn").hidden = true;
   await refreshFolder();
   sheetState("Idle");
   showSheet();
@@ -78,6 +86,7 @@ function closeSheet() {
   if (state.running) return;
   $("scrim").hidden = true;
   $("sheet").hidden = true;
+  behindSheet(false);
 }
 
 function setRange(range) {

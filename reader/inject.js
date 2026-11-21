@@ -61,6 +61,8 @@
       post("state", state);
     }
     if (state.ready && fitted === null) fitted = looksFitted();
+    // Edubase's scroll bar is only of use while the page is larger than the window.
+    if (state.ready) document.body.classList.toggle("stapel-fits", looksFitted());
     if (state.ready && tocFor !== state.id) {
       // Edubase fills its table of contents a moment after the first page.
       if (readySince.id !== state.id) readySince = { id: state.id, at: Date.now() };
@@ -214,11 +216,14 @@
   }
 
   // Where the pointer is on the page, in the page's own units.
+  // Kept inside the page: a line that runs off the paper stops at its edge (the pointer is
+  // still followed while the button is down, also over the neighbouring page).
   function point(svg, e) {
     const m = svg.getScreenCTM();
     if (!m) return null;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
-    return [ink.r(p.x), ink.r(p.y)];
+    const height = svg.viewBox.baseVal.height || 1414;
+    return [ink.r(Math.max(0, Math.min(ink.W, p.x))), ink.r(Math.max(0, Math.min(height, p.y)))];
   }
 
   function distToSegment(px, py, ax, ay, bx, by) {
@@ -350,6 +355,16 @@
           p.push(pt[0], pt[1]);
         }
         stroke.node.setAttribute("d", ink.pathOf(p));
+        // A line without end (colouring in) is saved in pieces, so no piece grows too large.
+        if (p.length >= 5000) {
+          const done = stroke.item;
+          const next = { ...done, id: newId(), p: p.slice(-2) };
+          stroke = null;
+          setItems(page(), [...(book.pages[page()] || []), done]);
+          const node = ink.strokeNode(next);
+          svg.children[next.t === "hl" ? 0 : 1].append(node);
+          stroke = { item: next, node };
+        }
       } else if (erased) {
         erase(e);
       } else if (drag) {
@@ -473,10 +488,10 @@
         e.preventDefault();
         e.stopImmediatePropagation();
         flip();
-      } else if (mod && e.key.toLowerCase() === "z") {
+      } else if (mod && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (e.shiftKey) step(redo, undo, "after");
+        if (e.shiftKey || e.key.toLowerCase() === "y") step(redo, undo, "after");
         else step(undo, redo, "before");
       } else if (mod && e.key.toLowerCase() === "f") {
         e.preventDefault();
@@ -626,7 +641,7 @@
       queued = false;
       sync();
     });
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-pageid"] });
   setInterval(() => {
     sync();
     report();
