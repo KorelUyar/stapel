@@ -4,7 +4,7 @@
 //
 // appDir defaults to the repo; pass the built resources/app.asar to test a package.
 // Exits 0 when every step passed, 1 otherwise. Screenshots land in <outDir>.
-const { app, webContents, BrowserWindow } = require("electron");
+const { app, webContents, BrowserWindow, clipboard, dialog } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -148,25 +148,49 @@ app.whenReady().then(async () => {
     await js(`setTool('hl')`);
     await sleep(300);
     await drag([at(0.15, 0.6), at(0.3, 0.603), at(0.45, 0.598), at(0.6, 0.601)]);
-    await until(`r.notes.some((n) => n.page === '5' && n.strokes === 2)`, 5000);
+    await until(`r.notes.some((n) => n.page === '5' && n.strokes + n.marks.length === 2)`, 5000);
     const marker = (JSON.parse(fs.readFileSync(notesFile, "utf8")).pages["5"] || []).find((i) => i.t === "hl");
     check("highlighter line is straightened", !!marker && marker.p.length === 4 && marker.p[1] === marker.p[3], marker ? JSON.stringify(marker.p) : "no highlighter line saved");
     await js(`setTool('eraser')`);
     await sleep(300);
     await drag([at(0.35, 0.55), at(0.36, 0.6), at(0.37, 0.65)]);
-    check("eraser removes the highlighter line only", await until(`r.notes.some((n) => n.page === '5' && n.strokes === 1 && n.texts.length === 1)`, 5000));
+    check("eraser removes the highlighter line only", await until(`r.notes.some((n) => n.page === '5' && n.strokes + n.marks.length === 1 && n.texts.length === 1)`, 5000));
     // a line that runs off the page is still saved
     await js(`setTool('pen')`);
     await sleep(300);
     await drag([at(0.3, 0.9), at(0.1, 0.9), at(-0.4, 0.9), at(0.2, 0.92)]);
-    check("a line that leaves the page is saved", await until(`r.notes.some((n) => n.page === '5' && n.strokes === 2)`, 5000),
+    check("a line that leaves the page is saved", await until(`r.notes.some((n) => n.page === '5' && n.strokes + n.marks.length === 2)`, 5000),
       JSON.stringify((JSON.parse(fs.readFileSync(notesFile, "utf8")).pages["5"] || []).map((i) => i.t)));
+    // a highlighter line over a word: the list of notes shows the word as text
+    const word = await gjs(`(() => {
+      const w = [...document.querySelectorAll('.doc-page-wrapper')].find((x) => x.dataset.pageid === '5');
+      const e = w && [...w.querySelectorAll('.lu-page-word[data-w]')].find((x) => /^\\p{L}{6,}$/u.test(x.dataset.w));
+      if (!e) return null;
+      const b = e.getBoundingClientRect();
+      return { text: e.dataset.w, x: b.left, y: b.top + b.height / 2, w: b.width };
+    })()`);
+    await js(`setTool('hl')`);
+    await sleep(300);
+    if (word) await drag([[word.x + 1, word.y], [word.x + word.w / 2, word.y], [word.x + word.w - 1, word.y]]);
+    check("the highlighter knows the words it marks", !!word && (await until(`r.notes.some((n) => n.page === '5' && n.marks.some((m) => m.q.includes(${JSON.stringify(word?.text || "?")})))`, 6000)),
+      word ? `${word.text}: ${await js(`JSON.stringify((r.notes.find((n) => n.page === '5') || {}).marks)`)}` : "no word on page 5");
     await js(`setTool('hand')`);
     await js(`document.getElementById('markBtn').click()`);
     check("bookmark", await until(`r.marks.includes('5')`, 5000));
     await js(`setSide(true, 'notes')`);
     await sleep(1500);
     await shot("3-reader");
+    await js(`document.querySelector('#panelNotes .panel-action').click()`);
+    await sleep(800);
+    const sheet = await clipboard.readText();
+    check("notes copied as a study sheet", sheet.includes("Page 5") && (!word || sheet.includes(word.text)), sheet.split("\n").filter(Boolean).slice(0, 5).join(" / "));
+    const night = async (on) => {
+      await js(`document.getElementById('moreBtn').click()`);
+      await sleep(300);
+      await js(`[...document.querySelectorAll('#pop .menu-item')].find((b) => b.textContent === t('night')).click()`);
+      return until(`${on ? "" : "!"}document.body.classList.contains('stapel-night')`, 4000, gjs);
+    };
+    check("dark pages, on and off", (await night(true)) && (await night(false)));
 
     await js(`cmd('next')`);
     check("next page", await until(`r.page === '6'`, 15000));
@@ -193,6 +217,9 @@ app.whenReady().then(async () => {
     await js(`document.getElementById('pdfBtn').click()`);
     await sleep(900);
     check("the sheet offers the notes", await js(`!document.getElementById('notesOpt').hidden`));
+    await js(`document.querySelector('[data-range=chapter]').click()`);
+    check("chapters to choose from", await until(`document.getElementById('fromChapter').options.length > 1 && /\\d/.test(document.getElementById('chapterInfo').textContent)`, 8000),
+      await js(`document.getElementById('fromChapter').options.length + ' chapters, ' + document.getElementById('chapterInfo').textContent`));
     await js(`document.querySelector('[data-range=part]').click(); document.getElementById('fromPage').value = 4; document.getElementById('toPage').value = 6;`);
     await js(`document.getElementById('startBtn').click()`);
     await until(`/ [2-9] /.test(document.getElementById('runText').textContent) || ${vis("stateDone")}`, 90000);
@@ -218,6 +245,15 @@ app.whenReady().then(async () => {
         return count("Font") + count("XObject");
       });
       check("the notes are printed on their page", weight.length === 3 && weight[1] > weight[0] && weight[1] > weight[2], `fonts and pictures per page: ${weight.join(", ")}`);
+      // Every page carries its words as (invisible) text: a page without notes has a font too.
+      const fonts = doc.getPages().map((page) => {
+        const d = page.node.Resources()?.lookup(PDFName.of("Font"));
+        return d instanceof PDFDict ? d.keys().length : 0;
+      });
+      const labels = doc.catalog.lookup(PDFName.of("PageLabels"));
+      const first = labels instanceof PDFDict ? labels.lookup(PDFName.of("Nums"))?.lookup(1)?.lookup(PDFName.of("St"))?.asNumber() : null;
+      check("the PDF has text, the book's page numbers and its contents", fonts[0] >= 1 && fonts[2] >= 1 && first === 4 && !!doc.catalog.get(PDFName.of("Outlines")) && path.basename(single[0]).includes("4–6"),
+        `fonts ${fonts.join(", ")}; first page number ${first}; ${path.basename(single[0])}`);
     } else check("PDF file written", false);
     check("two pages are back after the PDF", await js(`r.double`));
     await js(`document.getElementById('closeSheet').click(); cmd('spread')`);
@@ -250,6 +286,36 @@ app.whenReady().then(async () => {
     const all = pdfFiles(path.join(out, "downloads"));
     check("one PDF per book, sorted into the folder", all.length === 1 + picked && all.some((f) => path.basename(path.dirname(f)) === "Deutsch"),
       all.map((f) => path.relative(path.join(out, "downloads"), f)).join(" | "));
+
+    // ---- notes in a folder of one's own (iCloud Drive, OneDrive): this one already holds what
+    // another computer put there, a folder of the same name among it
+    const cloud = path.join(out, "cloud");
+    fs.rmSync(cloud, { recursive: true, force: true });
+    fs.mkdirSync(path.join(cloud, "Stapel", "notes"), { recursive: true });
+    fs.writeFileSync(path.join(cloud, "Stapel", "library.json"), JSON.stringify({
+      v: 1, folders: [{ id: "f-other", name: "Mathe", color: "#3d5a80" }, { id: "f-same", name: "deutsch", color: "#1f6e59" }], shelf: {}, sort: "recent", progress: {}, recent: {},
+    }));
+    const otherBook = await js(`state.books.find((b) => /Magazin 2025/.test(b.title))?.id`);
+    fs.writeFileSync(path.join(cloud, "Stapel", "notes", `${otherBook}.json`), JSON.stringify({
+      v: 1, pages: { 2: [{ id: "other1", t: "text", c: "#2456c7", s: 18, x: 100, y: 100, text: "From the other computer" }] }, bookmarks: ["3"],
+    }));
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [cloud] });
+    const bookId = await js(`state.books.find((b) => /Handbuch/.test(b.title)).id`);
+    await js(`moveNotes()`);
+    await sleep(800);
+    const lib = JSON.parse(fs.readFileSync(path.join(cloud, "Stapel", "library.json"), "utf8"));
+    const marks = await js(`window.app.marks()`);
+    check("notes and folders move into a chosen folder, joined with what is there",
+      fs.existsSync(path.join(cloud, "Stapel", "notes", `${bookId}.json`)) && !fs.existsSync(path.join(profile, "notes")) &&
+      lib.folders.length === 2 && lib.shelf[magazine] === "f-same" && marks.notes[bookId] > 0 && marks.notes[otherBook] === 1 &&
+      (await js(`state.folders.map((f) => f.name).sort().join()`)) === "Mathe,deutsch",
+      `folders ${lib.folders.map((f) => f.name).join(", ")}; notes ${JSON.stringify(marks.notes)}`);
+    await js(`moveNotes('here')`);
+    await sleep(800);
+    const back = JSON.parse(fs.readFileSync(path.join(profile, "settings.json"), "utf8"));
+    check("and back to this computer, with all of it", !back.dataDir && back.folders?.length === 2 &&
+      fs.existsSync(path.join(profile, "notes", `${bookId}.json`)) && fs.existsSync(path.join(profile, "notes", `${otherBook}.json`)),
+      `folders ${(back.folders || []).map((f) => f.name).join(", ")}`);
   } catch (e) {
     check("no exception", false, e.stack);
   }

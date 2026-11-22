@@ -7,7 +7,7 @@ const { BrowserWindow, session } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { PDFDocument } = require("pdf-lib");
+const { PDFDocument, PDFName, PDFNumber, PDFHexString } = require("pdf-lib");
 
 const BASE = "https://app.edubase.ch/";
 const PARTITION = "persist:edubase";
@@ -319,18 +319,103 @@ async function preview() {
   }
 }
 
+// The book's table of contents as the PDF's own (the sidebar in Preview, Acrobat, GoodNotes):
+// chapters link to their page, sub-chapters fold under them. `at` maps a page name to its
+// index in the PDF; entries for pages that are not in it are left out.
+function addOutline(doc, toc, at) {
+  const entries = (toc || []).filter((e) => at.has(String(e.page)));
+  if (!entries.length) return;
+  const ctx = doc.context;
+  const pages = doc.getPages();
+  const root = { children: [] };
+  const stack = [{ level: -1, node: root }];
+  for (const e of entries) {
+    const node = { e, children: [], ref: ctx.nextRef() };
+    while (stack.length > 1 && stack[stack.length - 1].level >= e.level) stack.pop();
+    stack[stack.length - 1].node.children.push(node);
+    stack.push({ level: e.level, node });
+  }
+  const outlinesRef = ctx.nextRef();
+  const write = (list, parent) => {
+    list.forEach((node, i) => {
+      const dict = ctx.obj({});
+      dict.set(PDFName.of("Title"), PDFHexString.fromText(node.e.title));
+      dict.set(PDFName.of("Parent"), parent);
+      if (i > 0) dict.set(PDFName.of("Prev"), list[i - 1].ref);
+      if (i < list.length - 1) dict.set(PDFName.of("Next"), list[i + 1].ref);
+      if (node.children.length) {
+        dict.set(PDFName.of("First"), node.children[0].ref);
+        dict.set(PDFName.of("Last"), node.children[node.children.length - 1].ref);
+        dict.set(PDFName.of("Count"), PDFNumber.of(-node.children.length)); // folded
+      }
+      dict.set(PDFName.of("Dest"), ctx.obj([pages[at.get(String(node.e.page))].ref, PDFName.of("Fit")]));
+      ctx.assign(node.ref, dict);
+      write(node.children, node.ref);
+    });
+  };
+  write(root.children, outlinesRef);
+  const outlines = ctx.obj({});
+  outlines.set(PDFName.of("Type"), PDFName.of("Outlines"));
+  outlines.set(PDFName.of("First"), root.children[0].ref);
+  outlines.set(PDFName.of("Last"), root.children[root.children.length - 1].ref);
+  outlines.set(PDFName.of("Count"), PDFNumber.of(root.children.length));
+  ctx.assign(outlinesRef, outlines);
+  doc.catalog.set(PDFName.of("Outlines"), outlinesRef);
+}
+
+// A PDF of pages 23 to 41 numbers its pages 23 to 41, like the book.
+function addPageNumbers(doc, printed) {
+  const first = Number(printed[0]);
+  if (!(first > 1) || !printed.every((p, i) => p === String(first + i))) return;
+  doc.catalog.set(PDFName.of("PageLabels"), doc.context.obj({ Nums: [0, { S: "D", St: first }] }));
+}
+
+// The table of contents, read from edubase's page in the hidden window (book.js must be in it).
+// Edubase fills it a moment after the first page; a book without one gives [].
+async function readToc(token, max = 10000) {
+  const items = await waitFor(async () => {
+    const list = await js(`window.__stapelBook ? window.__stapelBook.toc() : []`).catch(() => []);
+    return Array.isArray(list) && list.length ? list : null;
+  }, max, 400, token);
+  return items || [];
+}
+
+/**
+ * The table of contents of a book, without saving anything (for "Save chapters as PDF" when
+ * the book was not opened in this app before).
+ * @param {string} id
+ * @param {{js: string, css: string}} assets  reader/ink.js and reader/book.js
+ */
+async function toc(id, assets) {
+  try {
+    await open(`#doc/${id}/1`);
+    const opened = await waitFor(async () => {
+      const p = await readPager();
+      return p.total > 0 && p.page ? p : null;
+    }, 45000, 250);
+    if (!opened) throw new Error("noaccess");
+    await js(assets.js);
+    return await readToc();
+  } finally {
+    if (worker && !worker.isDestroyed()) worker.loadURL("about:blank").catch(() => {});
+  }
+}
+
 /**
  * Save a book as one PDF.
- * @param {{id: string, title?: string, from?: number, to?: number, outputDir: string,
- *          ink?: object, inkAssets?: {js: string, css: string}}} job
+ * @param {{id: string, title?: string, part?: string, from?: number, to?: number,
+ *          outputDir: string, ink?: object, inkAssets: {js: string, css: string}}} job
+ *   part: what of the book this is ("Chapter 3", "p. 23–41"); it goes into the file name.
  *   ink: the user's own notes per page (reader.js); they are drawn onto each page before it
- *   is printed.
+ *   is printed. inkAssets: reader/ink.js and reader/book.js, and the notes' stylesheet.
  * @param {(p: object) => void} onProgress
  * @param {{cancelled: boolean}} token  set cancelled = true to stop
+ * @returns {Promise<{path: string, pages: number, toc: object[]}>}
  */
 async function download(job, onProgress, token) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "edubase-"));
   const files = [];
+  const printed = []; // the page name of each file
   let wasDouble = false;
   try {
     onProgress({ phase: "open" });
@@ -362,11 +447,11 @@ async function download(job, onProgress, token) {
     // Edubase prints a black frame around every page; a saved book reads better without.
     await getWorker().webContents.insertCSS("@media print { .doc-page-wrapper { border: 0 !important; } }");
 
-    const ink = job.ink && Object.keys(job.ink).length && job.inkAssets ? job.ink : null;
-    if (ink) {
-      await getWorker().webContents.insertCSS(job.inkAssets.css);
-      await js(job.inkAssets.js);
-    }
+    // The notes and the words of every page are drawn by the app's own scripts.
+    await getWorker().webContents.insertCSS(job.inkAssets.css);
+    await js(job.inkAssets.js);
+    const ink = job.ink && Object.keys(job.ink).length ? job.ink : null;
+    const tocRead = readToc(token).catch(() => []);
     const last = Math.min(job.to || opened.total, opened.total);
     const count = Math.max(1, last - from + 1);
     const started = Date.now();
@@ -392,10 +477,17 @@ async function download(job, onProgress, token) {
         await waitIdle({ token });
       }
 
+      const page = String((await readPager()).page);
       if (ink) {
-        const page = (await readPager()).page;
         const items = Object.prototype.hasOwnProperty.call(ink, page) ? ink[page] : [];
         await js(`window.__stapelInk.drawPage(${JSON.stringify(page)}, ${JSON.stringify(items)})`);
+      }
+      // The words as invisible text, so the PDF can be searched. A page whose words have not
+      // arrived yet gets a second look; a page without text (a picture) has none.
+      const layer = `window.__stapelBook.textLayerOf(${JSON.stringify(page)})`;
+      if ((await js(layer)) === 0) {
+        await sleep(500);
+        await js(layer);
       }
 
       const pdf = await getWorker().webContents.printToPDF({
@@ -405,6 +497,7 @@ async function download(job, onProgress, token) {
       const file = path.join(tempDir, `${String(i).padStart(5, "0")}.pdf`);
       fs.writeFileSync(file, pdf);
       files.push(file);
+      printed.push(page);
 
       const elapsed = Date.now() - started;
       onProgress({
@@ -417,17 +510,28 @@ async function download(job, onProgress, token) {
     }
 
     onProgress({ phase: "merge", current: files.length, total: count });
+    const toc = await tocRead;
     const merged = await PDFDocument.create();
-    merged.setTitle(title);
+    const name = job.part ? `${title} – ${job.part}` : title;
+    merged.setTitle(name);
     merged.setProducer("Stapel");
-    for (const file of files) {
-      const doc = await PDFDocument.load(fs.readFileSync(file));
-      for (const p of await merged.copyPages(doc, doc.getPageIndices())) merged.addPage(p);
+    const at = new Map();
+    for (let i = 0; i < files.length; i++) {
+      const doc = await PDFDocument.load(fs.readFileSync(files[i]));
+      const copied = await merged.copyPages(doc, doc.getPageIndices());
+      if (!at.has(printed[i])) at.set(printed[i], merged.getPageCount());
+      for (const p of copied) merged.addPage(p);
+    }
+    try {
+      addOutline(merged, toc, at);
+      addPageNumbers(merged, printed);
+    } catch {
+      // A table of contents that does not fit is left out; the pages are what counts.
     }
     fs.mkdirSync(job.outputDir, { recursive: true });
-    const out = freePath(job.outputDir, safeName(title));
+    const out = freePath(job.outputDir, safeName(name));
     fs.writeFileSync(out, await merged.save());
-    return { path: out, pages: files.length };
+    return { path: out, pages: files.length, toc };
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
     if (wasDouble && worker && !worker.isDestroyed()) {
@@ -439,4 +543,4 @@ async function download(job, onProgress, token) {
   }
 }
 
-module.exports = { init, status, login, logout, library, download, safeName };
+module.exports = { init, status, login, logout, library, download, toc, safeName };

@@ -1,4 +1,87 @@
-// Saving PDFs: one book (whole or a range of pages), or several books one after the other.
+// Saving PDFs: one book (whole, some chapters or a range of pages), or several books one
+// after the other.
+
+// ------------------------------------------------------------ chapters
+
+// The chapters to choose from: the entries of the table of contents at the first level that
+// has more than one (some books put everything under one title). Only entries with a page
+// number can mark a range.
+function chapterList(toc) {
+  const numbered = (toc || []).filter((e) => /^\d+$/.test(e.page));
+  const levels = [...new Set(numbered.map((e) => e.level))].sort((a, b) => a - b);
+  const level = levels.find((l) => numbered.filter((e) => e.level === l).length > 1) ?? levels[0];
+  return numbered.filter((e) => e.level === level);
+}
+
+// From the start of the first chosen chapter to the page before the next chapter (or the end).
+function chapterRange() {
+  const list = state.chapters || [];
+  const a = +$("fromChapter").value;
+  const b = Math.max(a, +$("toChapter").value);
+  if (!list[a] || !list[b]) return null;
+  const from = +list[a].page;
+  const next = list.slice(b + 1).find((e) => +e.page > from);
+  const to = next ? Math.max(from, +next.page - 1) : undefined;
+  const part = a === b ? list[a].title : t("partChapters", list[a].title, list[b].title);
+  return { from, to, part };
+}
+
+function renderChapterInfo() {
+  const range = chapterRange();
+  $("chapterInfo").textContent = !range ? "" : range.to ? t("chapterPages", range.from, range.to) : t("chapterToEnd", range.from);
+}
+
+function fillChapters(toc) {
+  state.chapters = chapterList(toc);
+  const list = state.chapters;
+  const fields = $("chapterFields");
+  fields.classList.toggle("empty", !list.length);
+  for (const id of ["fromChapter", "toChapter"]) {
+    const select = $(id);
+    select.replaceChildren(...list.map((e, i) => {
+      const o = el("option", "", e.title.length > 64 ? e.title.slice(0, 62) + " …" : e.title);
+      o.value = String(i);
+      return o;
+    }));
+    select.disabled = !list.length;
+  }
+  $("chapterInfo").textContent = list.length ? "" : t("noChapters");
+  if (list.length) renderChapterInfo();
+}
+
+// The table of contents of the book in the sheet: the reader's own when the book is open,
+// else the one kept from earlier, else edubase is asked (once, when Chapters is chosen).
+async function loadChapters(book, lookUp) {
+  if (state.reading && state.reading.id === book.id && r.toc.length) return fillChapters(r.toc);
+  if (!lookUp) {
+    const known = await window.app.toc(book.id, false).catch(() => null);
+    if (state.book !== book) return;
+    state.toc = known;
+    if (known) fillChapters(known);
+    else if (state.range === "chapter") loadChapters(book, true);
+    return;
+  }
+  $("chapterInfo").textContent = t("tocLoading");
+  for (const id of ["fromChapter", "toChapter"]) $(id).disabled = true;
+  try {
+    const items = await window.app.toc(book.id, true);
+    if (state.book !== book) return;
+    state.toc = items || [];
+    fillChapters(state.toc);
+  } catch (err) {
+    if (state.book !== book) return;
+    $("chapterInfo").textContent = errorText(err);
+  }
+}
+
+$("fromChapter").onchange = () => {
+  if (+$("toChapter").value < +$("fromChapter").value) $("toChapter").value = $("fromChapter").value;
+  renderChapterInfo();
+};
+$("toChapter").onchange = () => {
+  if (+$("toChapter").value < +$("fromChapter").value) $("fromChapter").value = $("toChapter").value;
+  renderChapterInfo();
+};
 
 function sheetState(name) {
   for (const s of ["Idle", "Run", "Done", "Fail"]) $("state" + s).hidden = s !== name;
@@ -33,6 +116,10 @@ async function openSheet(book) {
   $("rangeSeg").hidden = false;
   $("fromPage").value = 1;
   $("toPage").value = "";
+  state.toc = undefined;
+  state.chapters = null;
+  fillChapters([]);
+  $("chapterInfo").textContent = "";
   $("byFolderOpt").hidden = true;
   $("notesOpt").hidden = true;
   $("notesCheck").checked = true;
@@ -44,6 +131,7 @@ async function openSheet(book) {
   sheetState("Idle");
   showSheet();
   $("startBtn").focus();
+  loadChapters(book, false);
   // Offer the notes only when there are some on this book.
   const notes = await window.app.notes(book.id).catch(() => null);
   if (state.book === book && notes) $("notesOpt").hidden = !notes.count;
@@ -60,6 +148,7 @@ async function openBatch(books) {
   $("sheetCoverBox").hidden = true;
   $("rangeSeg").hidden = true;
   $("rangeFields").hidden = true;
+  $("chapterFields").hidden = true;
   const list = $("batchList");
   list.replaceChildren();
   list.hidden = false;
@@ -93,6 +182,8 @@ function setRange(range) {
   state.range = range;
   for (const b of document.querySelectorAll(".seg button")) b.classList.toggle("on", b.dataset.range === range);
   $("rangeFields").hidden = range !== "part";
+  $("chapterFields").hidden = range !== "chapter";
+  if (range === "chapter" && state.book && !state.chapters?.length && state.toc === null) loadChapters(state.book, true);
 }
 
 function beginRun() {
@@ -115,6 +206,11 @@ async function start() {
     if (to && to < from) return toast(t("rangeError"));
     book.from = from;
     book.to = to;
+    book.part = t("partPages", from, to);
+  } else if (state.range === "chapter") {
+    const range = chapterRange();
+    if (!range) return toast(t("noChapters"));
+    Object.assign(book, range);
   }
   beginRun();
   try {
@@ -123,7 +219,7 @@ async function start() {
     sheetState("Done");
     if (state.book.cover) $("sheetPreview").classList.remove("show"); // back to the cover
     $("openBtn").focus();
-    if (!book.from && !book.to) {
+    if (state.range === "all") {
       const b = bookById(book.id);
       if (b) b.pdf = true;
       if (state.screen === "library") renderLibrary();

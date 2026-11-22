@@ -19,6 +19,8 @@ const state = {
   running: false,
   result: null,
   range: "all",
+  toc: undefined, // the sheet's book: its table of contents (null: not known yet)
+  chapters: null, // the chapters offered in the sheet
   bootError: null,
 };
 
@@ -44,6 +46,7 @@ function show(screen) {
   $("barTitle").classList.toggle("reading", reading);
   $("logoutBtn").hidden = !(screen === "library" && state.loggedIn);
   $("folderBtn").hidden = screen !== "library";
+  $("settingsBtn").hidden = screen !== "library";
   $("selBar").hidden = !(screen === "library" && state.selecting);
   closePop();
   renderUpdate();

@@ -30,6 +30,7 @@ const r = {
   find: null, // { q, items } | { q, busy: true }
   tab: "toc",
   side: false,
+  night: false, // dark pages
   classic: false,
   fallback: false, // edubase's own view for this book only, because the app's reader cannot show it
   failed: false,
@@ -43,11 +44,12 @@ try {
     if ([0, 1, 2].includes(saved.size?.[k])) r.size[k] = saved.size[k];
   }
   r.side = saved.side === true;
+  r.night = saved.night === true;
 } catch {}
 
 function saveToolPrefs() {
   try {
-    localStorage.setItem("stapel.tools", JSON.stringify({ color: r.color, size: r.size, side: r.side }));
+    localStorage.setItem("stapel.tools", JSON.stringify({ color: r.color, size: r.size, side: r.side, night: r.night }));
   } catch {}
 }
 
@@ -144,6 +146,7 @@ window.app.onReader((type, data) => {
     if (r.ready && !wasReady) {
       coverReader(false);
       sendTool();
+      if (r.night) cmd("night", true);
       // Edubase laid the page out before the side panel had its size.
       setTimeout(() => cmd("resize"), 60);
     }
@@ -319,19 +322,35 @@ function renderPanel() {
     }
   } else if (r.tab === "notes") {
     const box = $("panelNotes");
+    const top = box.scrollTop;
     box.replaceChildren();
     if (!r.notes.length) box.append(hint(t("noNotes")));
-    for (const note of r.notes.slice().sort((a, b) => byPage(a.page, b.page))) {
-      const b = el("button", "prow note" + (r.pages.includes(note.page) ? " on" : ""));
-      const head = el("span", "prow-label", t("page", note.page));
-      const what = [];
-      if (note.strokes) what.push(t("drawings", note.strokes));
-      if (note.texts.length) what.push(t("notesN", note.texts.length));
-      b.append(head, el("span", "prow-page", what.join(", ")));
-      for (const text of note.texts.slice(0, 3)) b.append(el("span", "prow-quote", text));
-      b.onclick = () => cmd("go", note.page);
-      box.append(b);
+    else {
+      const copy = el("button", "panel-action");
+      copy.append(icon("copy"), el("span", "", t("studyCopy")));
+      copy.onclick = copyStudySheet;
+      box.append(copy);
     }
+    // Under the chapter each page belongs to, what was marked and written there.
+    for (const group of byChapter(r.notes)) {
+      if (group.title) box.append(el("div", "panel-group", group.title));
+      for (const note of group.items) {
+        const b = el("button", "prow note" + (r.pages.includes(note.page) ? " on" : ""));
+        const what = [];
+        if (note.strokes) what.push(t("drawings", note.strokes));
+        if (note.texts.length) what.push(t("notesN", note.texts.length));
+        b.append(el("span", "prow-label", t("page", note.page)), el("span", "prow-page", what.join(", ")));
+        for (const mark of note.marks.slice(0, 8)) {
+          const m = el("span", "prow-mark", mark.q);
+          m.style.setProperty("--c", mark.c);
+          b.append(m);
+        }
+        for (const text of note.texts.slice(0, 3)) b.append(el("span", "prow-quote", text));
+        b.onclick = () => cmd("go", note.page);
+        box.append(b);
+      }
+    }
+    box.scrollTop = top;
   } else {
     const list = $("findList");
     list.replaceChildren();
@@ -347,6 +366,63 @@ function renderPanel() {
       list.append(b);
     }
   }
+}
+
+// Pages grouped under the chapter they belong to (the chapters of the PDF sheet). Without a
+// table of contents: one group without a title.
+function byChapter(pages) {
+  const chapters = chapterList(r.toc);
+  const groups = [];
+  for (const page of pages.slice().sort((a, b) => byPage(a.page, b.page))) {
+    const n = /^\d+$/.test(page.page) ? +page.page : null;
+    let title = chapters.length ? t("beforeChapters") : "";
+    if (n !== null) for (const c of chapters) if (+c.page <= n) title = c.title;
+    const last = groups[groups.length - 1];
+    if (last && last.title === title) last.items.push(page);
+    else groups.push({ title, items: [page] });
+  }
+  return groups;
+}
+
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const tint = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, ${a})`;
+
+// Everything marked and written in the book, chapter by chapter, as text and as formatted
+// text (headings, the marks in their colour) for Word, Pages, Notion or GoodNotes.
+async function copyStudySheet() {
+  if (!r.id) return;
+  const pages = (await window.app.studySheet(r.id)).filter((p) => p.items.length || p.drawings);
+  const title = t("studyTitle", state.reading?.title || "Stapel");
+  const text = [title, ""];
+  const html = [`<h1>${esc(title)}</h1>`];
+  for (const group of byChapter(pages)) {
+    if (group.title) {
+      text.push(group.title, "");
+      html.push(`<h2>${esc(group.title)}</h2>`);
+    }
+    for (const page of group.items) {
+      text.push(t("page", page.page));
+      html.push(`<h3>${esc(t("page", page.page))}</h3>`);
+      if (page.items.length) html.push("<ul>");
+      for (const it of page.items) {
+        if (it.t === "hl") {
+          text.push(`– ${it.q}`);
+          html.push(`<li><span style="background-color: ${tint(it.c, 0.4)}">${esc(it.q)}</span></li>`);
+        } else {
+          text.push(`✎ ${it.text.replace(/\n/g, "\n  ")}`);
+          html.push(`<li><i>${esc(it.text).replace(/\n/g, "<br>")}</i></li>`);
+        }
+      }
+      if (page.items.length) html.push("</ul>");
+      if (page.drawings) {
+        text.push(`(${t("studyDrawings", page.drawings)})`);
+        html.push(`<p style="color: #888">${esc(t("studyDrawings", page.drawings))}</p>`);
+      }
+      text.push("");
+    }
+  }
+  await window.app.copy(text.join("\n").trim() + "\n", html.join("\n"));
+  toast(t("studyCopied"));
 }
 
 function setSide(on, tab) {
@@ -426,6 +502,16 @@ $("moreBtn").onclick = () => {
   if (here.length) {
     items.push({ label: t("clearPage"), icon: "trash", danger: true, onClick: () => here.forEach((n) => cmd("clearPage", n.page)) }, { sep: true });
   }
+  if (!r.classic) items.push({
+    label: t("night"),
+    icon: "moon",
+    checked: r.night,
+    onClick: () => {
+      r.night = !r.night;
+      saveToolPrefs();
+      cmd("night", r.night);
+    },
+  });
   items.push({ label: t("classicView"), icon: "spread", checked: r.classic, onClick: () => setClassic(!r.classic) });
   openMenu($("moreBtn"), items, { align: "right" });
 };

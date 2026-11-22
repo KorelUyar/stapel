@@ -44,7 +44,30 @@
   user-select: none;
 }
 
+/* The words of a page as invisible text, only in saved PDFs (reader/book.js). */
+.stapel-words {
+  position: absolute;
+  inset: 0;
+  z-index: 59;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+.stapel-words text {
+  fill: transparent;
+  font-family: Arial, Helvetica, sans-serif;
+  white-space: pre;
+}
+
 @media print {
+  .doc-page .stapel-words {
+    display: block !important;
+  }
+  .doc-page .stapel-words text {
+    display: inline !important;
+  }
   .doc-page .stapel-layer,
   .doc-page .stapel-layer svg,
   .doc-page .stapel-layer g,

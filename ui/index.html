@@ -27,6 +27,7 @@
           <svg data-i="folder"></svg>
           <span id="folderName"></span>
         </button>
+        <button class="icon-btn quiet" id="settingsBtn" data-t-title="settings" hidden><svg data-i="settings"></svg></button>
         <button class="chip ghost" id="logoutBtn" data-t="signOut" hidden></button>
         <button class="btn secondary small" id="pdfBtn" hidden>
           <svg data-i="download"></svg>
@@ -200,7 +201,13 @@
       <section id="stateIdle">
         <div class="seg" id="rangeSeg" role="radiogroup">
           <button class="on" data-range="all" data-t="wholeBook"></button>
+          <button data-range="chapter" data-t="chapters"></button>
           <button data-range="part" data-t="somePages"></button>
+        </div>
+        <div class="chapter-fields" id="chapterFields" hidden>
+          <label><span data-t="chapterFrom"></span><select id="fromChapter"></select></label>
+          <label><span data-t="chapterTo"></span><select id="toChapter"></select></label>
+          <p class="fine" id="chapterInfo"></p>
         </div>
         <div class="range" id="rangeFields" hidden>
           <label><span data-t="from"></span> <input type="number" id="fromPage" min="1" value="1" /></label>
@@ -246,6 +253,7 @@
     <script src="library.js"></script>
     <script src="reader.js"></script>
     <script src="pdf.js"></script>
+    <script src="settings.js"></script>
     <script src="update.js"></script>
     <script src="start.js"></script>
   </body>

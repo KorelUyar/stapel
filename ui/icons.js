@@ -1,6 +1,9 @@
 // The interface's icons: 16 by 16, drawn as lines. <svg data-i="name"> is filled in at start.
 const ICONS = {
   left: "M10 3.5L5.5 8l4.5 4.5",
+  settings: "M2 4.5h7.5M12.5 4.5H14M2 11.5h1.5M6.5 11.5H14M11 3a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM5 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z",
+  moon: "M13.2 9.7A5.6 5.6 0 1 1 6.3 2.8a4.6 4.6 0 0 0 6.9 6.9z",
+  copy: "M5.5 5.5h7a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zM2.5 10.5v-7a1 1 0 0 1 1-1h7",
   right: "M6 3.5L10.5 8 6 12.5",
   folder: "M1.5 4.5a1 1 0 0 1 1-1h3.6l1.4 1.5h6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z",
   folderPlus: "M1.5 4.5a1 1 0 0 1 1-1h3.6l1.4 1.5h6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM8 7.4v3.4M6.3 9.1h3.4",

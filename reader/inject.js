@@ -4,6 +4,7 @@
 (() => {
   if (window.__stapel) return;
   const ink = window.__stapelInk;
+  const edu = window.__stapelBook; // table of contents and the words of a page (book.js)
   const host = window.__stapelHost; // from reader-preload.js
   const post = (type, data) => {
     try {
@@ -66,7 +67,7 @@
     if (state.ready && tocFor !== state.id) {
       // Edubase fills its table of contents a moment after the first page.
       if (readySince.id !== state.id) readySince = { id: state.id, at: Date.now() };
-      const items = readToc();
+      const items = edu.toc();
       if (items.length || Date.now() - readySince.at > 8000) {
         tocFor = state.id;
         post("toc", { id: state.id, items });
@@ -79,23 +80,6 @@
       undo.length = redo.length = 0;
       post("need-ink", state.id);
     }
-  }
-
-  function readToc() {
-    const out = [];
-    const walk = (ul, level) => {
-      for (const li of ul.children) {
-        if (out.length >= 800) return;
-        const a = q(":scope > .lu-toc-label a.lu-toc-link", li);
-        const m = a && (a.getAttribute("href") || "").match(/#doc\/\d+\/([^/?]+)/);
-        if (a && m) out.push({ title: a.textContent.trim().slice(0, 200), page: decodeURIComponent(m[1]), level });
-        const sub = q(":scope > ul", li);
-        if (sub && level < 5) walk(sub, level + 1);
-      }
-    };
-    const root = q(".lu-docpanel-toc .lu-toc-container > ul");
-    if (root) walk(root, 0);
-    return out;
   }
 
   // ------------------------------------------------------------ search (edubase's own, shown by the app)
@@ -180,6 +164,22 @@
     if (!wrappers().some((w) => w.dataset.pageid === op.page)) go(op.page);
   }
 
+  // Highlighter lines from before 1.3 do not know the words they mark. They learn them the
+  // first time their page is on screen with its words (once per page and session).
+  const quoted = new Set();
+  function quoteOld(docPage, page) {
+    const key = `${book.id}/${page}`;
+    const items = book.pages[page];
+    if (!book.loaded || quoted.has(key) || !items || !items.some((i) => i.t === "hl" && typeof i.q !== "string")) return;
+    if (!q(".lu-page-word", docPage)) return; // the words are not there (yet)
+    quoted.add(key);
+    setTimeout(() => {
+      if (!docPage.isConnected || book.pages[page] !== items) return quoted.delete(key); // next time
+      const next = copy(items).map((i) => (i.t === "hl" && typeof i.q !== "string" ? { ...i, q: edu.quote(docPage, i.p, i.w) ?? "" } : i));
+      setItems(page, next, false);
+    }, 0);
+  }
+
   // Keep a notes layer on every page edubase shows. Edubase rebuilds its pages when the page
   // or the zoom changes, so this runs often and only redraws what is out of date.
   function sync() {
@@ -188,6 +188,7 @@
       const docPage = q(".doc-page", w);
       if (!docPage) continue;
       const page = w.dataset.pageid;
+      quoteOld(docPage, page);
       const key = `${book.id}/${page}/${rev}/${ink.pageHeight(docPage)}`;
       const el = q(":scope > .stapel-layer", docPage);
       if (el && drawn.get(el) === key) continue;
@@ -384,7 +385,12 @@
         const { item } = stroke;
         stroke = null;
         if (e.type === "pointercancel") return redraw();
-        if (item.t === "hl") item.p = straighten(item.p);
+        if (item.t === "hl") {
+          item.p = straighten(item.p);
+          // The words under the line, for the list of notes (null: the page has no words).
+          const words = edu.quote(layerEl.parentNode, item.p, item.w);
+          if (words !== null) item.q = words;
+        }
         setItems(page(), [...(book.pages[page()] || []), item]);
       } else if (erased) {
         const left = erased;
@@ -621,6 +627,8 @@
       if (book.pages[page]) setItems(String(page), []);
     },
     resize: () => window.dispatchEvent(new Event("resize")),
+    // Dark pages for reading at night: light letters on a dark page, the notes with them.
+    night: (on) => document.body.classList.toggle("stapel-night", on === true),
   };
 
   window.__stapel = {

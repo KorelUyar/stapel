@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu, clipboard, ClipboardItem } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const edubase = require("./edubase");
@@ -42,6 +42,154 @@ function writeSettings(patch) {
 
 const outputDir = () => readSettings().outputDir || app.getPath("downloads");
 
+// A JSON file written to a second file first and then swapped in.
+function writeJson(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
+}
+
+// ---------------------------------------------------------------- the notes folder
+
+// Notes, bookmarks, folders and reading positions can live in a folder the user chooses
+// (iCloud Drive, OneDrive, a USB stick). Then every computer that uses the same folder has
+// them, and they outlive this computer. What belongs to this computer (where PDFs go, the
+// language) stays in settings.json.
+const SHARED = ["folders", "shelf", "sort", "progress", "recent"];
+const LIBRARY = "library.json";
+let data = { dir: null, reachable: true };
+
+const chosenDir = () => {
+  const d = readSettings().dataDir;
+  return typeof d === "string" && path.isAbsolute(d) ? d : null;
+};
+const iCloudDrive = () => path.join(app.getPath("home"), "Library", "Mobile Documents", "com~apple~CloudDocs");
+const hasStapelData = (dir) => fs.existsSync(path.join(dir, LIBRARY)) || fs.existsSync(path.join(dir, "notes"));
+
+// A folder that is gone (a USB stick that is not plugged in) cannot hold notes: until it is
+// back, they are kept on this computer. A folder whose parent is there is made again.
+function reach(dir) {
+  try {
+    if (fs.statSync(dir).isDirectory()) return true;
+  } catch {}
+  try {
+    if (fs.statSync(path.dirname(dir)).isDirectory()) {
+      fs.mkdirSync(dir);
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+const libraryFile = () => (data.dir && data.reachable ? path.join(data.dir, LIBRARY) : null);
+
+let lastShared = null;
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return {};
+    // Unreadable: put aside, not overwritten (as with notes, reader.js).
+    try {
+      fs.renameSync(file, `${file}.broken-${Date.now()}`);
+    } catch {}
+    return {};
+  }
+}
+
+// Folders and reading positions: from the notes folder when there is one, else settings.json.
+function readShared() {
+  const file = libraryFile();
+  if (!file) return readSettings();
+  return (lastShared = readJsonFile(file));
+}
+
+function writeShared(patch) {
+  const file = libraryFile();
+  if (!file) return writeSettings(patch);
+  const next = { ...readShared(), ...patch, v: 1 };
+  try {
+    writeJson(file, next);
+  } catch {
+    // The folder went away while the app was open: the change lives until the app quits.
+  }
+  lastShared = next;
+  return next;
+}
+
+// Two libraries in one: `into` wins where both say something, folders with the same name
+// become one, nothing is taken away.
+function mergeLibrary(into, from) {
+  const a = cleanShelf(into);
+  const b = cleanShelf(from);
+  const folders = [...a.folders];
+  const ids = new Set(folders.map((f) => f.id));
+  const byName = new Map(folders.map((f) => [f.name.toLowerCase(), f.id]));
+  const same = {};
+  for (const f of b.folders) {
+    if (ids.has(f.id)) continue;
+    const twin = byName.get(f.name.toLowerCase());
+    if (twin) {
+      same[f.id] = twin;
+      continue;
+    }
+    folders.push(f);
+    ids.add(f.id);
+  }
+  const shelf = {};
+  for (const [book, folder] of Object.entries(b.shelf)) shelf[book] = same[folder] || folder;
+  Object.assign(shelf, a.shelf);
+  const positions = (v) => (v && typeof v === "object" ? v : {});
+  const recent = { ...positions(from.recent) };
+  for (const [id, at] of Object.entries(positions(into.recent))) if (typeof at === "number") recent[id] = Math.max(at, recent[id] || 0);
+  return {
+    ...cleanShelf({ folders, shelf, sort: into.sort || from.sort }),
+    progress: { ...positions(from.progress), ...positions(into.progress) },
+    recent,
+  };
+}
+
+const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
+
+// Notes that were written on this computer while the folder could not be reached go into the
+// folder when it is back; the copy here is put aside, so it does not come back later.
+function moveLocalNotesAside() {
+  const local = path.join(app.getPath("userData"), "notes");
+  if (!fs.existsSync(local)) return;
+  fs.renameSync(local, path.join(app.getPath("userData"), `notes-moved-${Date.now()}`));
+}
+
+function applyDataDir() {
+  const dir = chosenDir();
+  data = { dir, reachable: !dir || reach(dir) };
+  lastShared = null;
+  progress = null; // read again from the right place
+  reader.setDataRoot(dir && data.reachable ? dir : null);
+  if (dir && data.reachable && fs.existsSync(path.join(app.getPath("userData"), "notes"))) {
+    try {
+      reader.mergeNotes(app.getPath("userData"), dir);
+      moveLocalNotesAside();
+      reader.setDataRoot(dir);
+    } catch {
+      // Tried again at the next start.
+    }
+  }
+}
+
+function dataInfo() {
+  const dir = data.dir;
+  let name = null;
+  if (dir) {
+    const cloud = iCloudDrive();
+    const one = oneDrive();
+    if (isMac && (dir === cloud || dir.startsWith(cloud + path.sep))) name = ["iCloud Drive", ...path.relative(cloud, dir).split(path.sep).filter(Boolean)].join(" › ");
+    else if (one && (dir === one || dir.startsWith(one + path.sep))) name = ["OneDrive", ...path.relative(one, dir).split(path.sep).filter(Boolean)].join(" › ");
+    else name = dir.split(/[\\/]/).filter(Boolean).slice(-2).join(" › ");
+  }
+  return { dir, name, reachable: data.reachable };
+}
+
 // Folders are the user's own way to sort the library; edubase knows nothing about them.
 const FOLDER_COLORS = ["#1f6e59", "#e3a92b", "#e0654a", "#3d5a80", "#8a5a44", "#2f7f9a", "#5b4b8a", "#b84a62", "#6b7a3a", "#5c5a56"];
 const isBookId = (id) => typeof id === "string" && /^\d{1,12}$/.test(id);
@@ -63,16 +211,16 @@ function cleanShelf(input) {
   return { folders, shelf, sort: input?.sort === "title" ? "title" : "recent" };
 }
 
-const readShelf = () => cleanShelf(readSettings());
+const readShelf = () => cleanShelf(readShared());
 
 // Where each book was last read. Written a moment after the page changes, and when the app quits.
 let progress = null;
 let progressTimer = null;
-const getProgress = () => (progress ??= { ...(readSettings().progress || {}) });
+const getProgress = () => (progress ??= { ...(readShared().progress || {}) });
 function flushProgress() {
   clearTimeout(progressTimer);
   progressTimer = null;
-  if (progress) writeSettings({ progress });
+  if (progress) writeShared({ progress });
 }
 function noteProgress(state) {
   if (!state.ready || !isBookId(state.id) || !/^\d+$/.test(state.page || "")) return;
@@ -176,10 +324,12 @@ app.whenReady().then(() => {
   // Windows and Linux get no menu bar; copy, paste and the rest work without it there.
   if (!isMac) Menu.setApplicationMenu(null);
   edubase.init();
+  applyDataDir();
   reader.setClassic(readSettings().classic === true);
-  reader.onNotify((type, data) => {
-    if (type === "state") noteProgress(data);
-    if (win && !win.isDestroyed()) win.webContents.send("reader", type, data);
+  reader.onNotify((type, info) => {
+    if (type === "state") noteProgress(info);
+    if (type === "toc") keepToc(info.id, info.items);
+    if (win && !win.isDestroyed()) win.webContents.send("reader", type, info);
   });
   createWindow();
   // Only the installed app looks for updates; a copy run from the source does not.
@@ -232,7 +382,7 @@ ipcMain.handle(
   "library",
   wrap(async () => {
     const settings = readSettings();
-    const recent = settings.recent || {};
+    const recent = readShared().recent || {};
     const pdfs = settings.pdfs || {};
     const notes = reader.counts();
     const books = await look(() => edubase.library());
@@ -259,17 +409,123 @@ ipcMain.handle("marks", () => {
 
 ipcMain.handle("opened", (_e, id) => {
   if (!isBookId(String(id))) return;
-  const recent = readSettings().recent || {};
+  const recent = readShared().recent || {};
   recent[String(id)] = Date.now();
-  writeSettings({ recent });
+  writeShared({ recent });
 });
 
 ipcMain.handle("shelf", () => readShelf());
 ipcMain.handle("save-shelf", (_e, input) => {
   const next = cleanShelf(input);
-  writeSettings(next);
+  writeShared(next);
   return next;
 });
+
+// ---------------------------------------------------------------- IPC: the notes folder
+
+// Windows names the user's OneDrive folder in an environment variable.
+const oneDrive = () => (!isMac && process.env.OneDrive && path.isAbsolute(process.env.OneDrive) && fs.existsSync(process.env.OneDrive) ? process.env.OneDrive : null);
+
+ipcMain.handle("data-dir", () => ({ ...dataInfo(), iCloud: isMac && fs.existsSync(iCloudDrive()), oneDrive: !!oneDrive() }));
+
+// The user picks a folder. Notes and folders go there, added to what is there already (a
+// second computer finds the first one's). A folder that is not called Stapel and holds no
+// Stapel data gets a "Stapel" folder inside, so iCloud Drive itself stays tidy.
+ipcMain.handle(
+  "choose-data-dir",
+  wrap(async (where) => {
+    if (job || updating) throw new Error("busy");
+    let picked;
+    if (where === "icloud" && isMac && fs.existsSync(iCloudDrive())) {
+      picked = iCloudDrive();
+    } else if (where === "onedrive" && oneDrive()) {
+      picked = oneDrive();
+    } else {
+      const r = await dialog.showOpenDialog(win, {
+        properties: ["openDirectory", "createDirectory"],
+        defaultPath: isMac && fs.existsSync(iCloudDrive()) ? iCloudDrive() : oneDrive() || app.getPath("documents"),
+      });
+      if (r.canceled || !r.filePaths[0]) return dataInfo();
+      picked = r.filePaths[0];
+    }
+    const target = path.basename(picked) === "Stapel" || hasStapelData(picked) ? picked : path.join(picked, "Stapel");
+    const own = app.getPath("userData");
+    if (target === own || target.startsWith(own + path.sep)) throw new Error("ownfolder");
+    if (data.dir && path.resolve(data.dir) === path.resolve(target)) return dataInfo();
+    flushProgress();
+    const fromRoot = data.dir && data.reachable ? data.dir : own;
+    try {
+      fs.mkdirSync(target, { recursive: true });
+      reader.mergeNotes(fromRoot, target);
+      writeJson(path.join(target, LIBRARY), { ...mergeLibrary(readJsonFile(path.join(target, LIBRARY)), pick(readShared(), SHARED)), v: 1 });
+    } catch {
+      throw new Error("notesdisk");
+    }
+    if (fromRoot === own) {
+      try {
+        moveLocalNotesAside();
+      } catch {}
+    }
+    writeSettings({ dataDir: target });
+    applyDataDir();
+    return dataInfo();
+  }),
+);
+
+// Back to this computer: what is in the folder comes along; the folder itself stays as it is
+// (another computer may use it).
+ipcMain.handle(
+  "reset-data-dir",
+  wrap(async () => {
+    if (job || updating) throw new Error("busy");
+    if (!data.dir) return dataInfo();
+    flushProgress();
+    if (data.reachable) {
+      reader.mergeNotes(data.dir, app.getPath("userData"));
+      writeSettings(mergeLibrary(readJsonFile(path.join(data.dir, LIBRARY)), pick(readSettings(), SHARED)));
+    }
+    writeSettings({ dataDir: null });
+    applyDataDir();
+    return dataInfo();
+  }),
+);
+
+ipcMain.handle("reveal-data-dir", () => data.dir && data.reachable && shell.openPath(data.dir));
+
+// ---------------------------------------------------------------- IPC: tables of contents
+
+// Kept from the reader and from saved PDFs, so the PDF sheet can offer chapters at once.
+const tocFile = (id) => path.join(app.getPath("userData"), "toc", `${id}.json`);
+function cachedToc(id) {
+  try {
+    return reader.cleanToc(JSON.parse(fs.readFileSync(tocFile(id), "utf8")));
+  } catch {
+    return null;
+  }
+}
+function keepToc(id, items) {
+  const clean = reader.cleanToc(items);
+  if (!isBookId(String(id)) || !clean.length) return;
+  try {
+    writeJson(tocFile(String(id)), clean);
+  } catch {}
+}
+
+// null: not known yet (and not looked up); []: the book has none.
+ipcMain.handle(
+  "toc",
+  wrap(async (id, lookUp) => {
+    id = String(id);
+    if (!isBookId(id)) return [];
+    const have = cachedToc(id);
+    if (have || !lookUp) return have;
+    if (job) throw new Error("busy");
+    if (updating) throw new Error("updating");
+    const items = reader.cleanToc(await look(() => edubase.toc(id, { js: reader.INK_JS + "\n" + reader.BOOK_JS })));
+    keepToc(id, items);
+    return items;
+  }),
+);
 
 // ---------------------------------------------------------------- IPC: saving PDFs
 
@@ -289,18 +545,20 @@ function saveBook(book, dir, onProgress, token) {
       {
         id: String(book.id),
         title: typeof book.title === "string" ? book.title.slice(0, 300) : "",
+        part: !whole && typeof book.part === "string" ? book.part.replace(/\s+/g, " ").trim().slice(0, 120) : "",
         from: Number.isInteger(book.from) ? book.from : undefined,
         to: Number.isInteger(book.to) ? book.to : undefined,
         outputDir: dir,
         ink: book.notes === false ? null : reader.load(String(book.id)).pages,
-        inkAssets: { js: reader.INK_JS, css: reader.INK_CSS },
+        inkAssets: { js: reader.INK_JS + "\n" + reader.BOOK_JS, css: reader.INK_CSS },
       },
       onProgress,
       token,
     )
     .then((result) => {
       if (whole) rememberPdf(String(book.id), result.path);
-      return result;
+      keepToc(String(book.id), result.toc);
+      return { path: result.path, pages: result.pages };
     });
 }
 
@@ -456,6 +714,15 @@ ipcMain.on("reader-event", (e, type, data) => {
 
 ipcMain.handle("reader-cmd", (_e, name, arg) => reader.cmd(String(name), arg));
 ipcMain.handle("notes", (_e, id) => reader.summary(String(id)));
+ipcMain.handle("study-sheet", (_e, id) => reader.studySheet(String(id)));
+// The study sheet, for pasting into Word, Pages, Notion or GoodNotes (text and formatted).
+ipcMain.handle("copy", async (_e, text, html) => {
+  const item = new ClipboardItem({
+    "text/plain": String(text || "").slice(0, 2_000_000),
+    "text/html": String(html || "").slice(0, 4_000_000),
+  });
+  await clipboard.write([item]);
+});
 ipcMain.handle("bookmark", (_e, id, page) => reader.toggleBookmark(String(id), String(page)));
 // persist false: only until the app is closed (a book the app's reader cannot show).
 ipcMain.handle("set-classic", (_e, on, persist) => {
