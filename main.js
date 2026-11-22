@@ -84,25 +84,31 @@ function reach(dir) {
 
 const libraryFile = () => (data.dir && data.reachable ? path.join(data.dir, LIBRARY) : null);
 
-let lastShared = null;
+let lastShared = null; // the library as last read from the folder
+// {} when there is no file yet; null when it cannot be read (then it is put aside, not
+// overwritten, as with notes in reader.js).
 function readJsonFile(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    const d = JSON.parse(fs.readFileSync(file, "utf8"));
+    return d && typeof d === "object" && !Array.isArray(d) ? d : {};
   } catch (err) {
     if (err.code === "ENOENT") return {};
-    // Unreadable: put aside, not overwritten (as with notes, reader.js).
     try {
       fs.renameSync(file, `${file}.broken-${Date.now()}`);
     } catch {}
-    return {};
+    return null;
   }
 }
 
 // Folders and reading positions: from the notes folder when there is one, else settings.json.
+// A library file that cannot be read gives what was read before, so the next write does not
+// start from nothing.
 function readShared() {
   const file = libraryFile();
   if (!file) return readSettings();
-  return (lastShared = readJsonFile(file));
+  const d = readJsonFile(file);
+  if (d) lastShared = d;
+  return lastShared || {};
 }
 
 function writeShared(patch) {
@@ -457,7 +463,7 @@ ipcMain.handle(
     try {
       fs.mkdirSync(target, { recursive: true });
       reader.mergeNotes(fromRoot, target);
-      writeJson(path.join(target, LIBRARY), { ...mergeLibrary(readJsonFile(path.join(target, LIBRARY)), pick(readShared(), SHARED)), v: 1 });
+      writeJson(path.join(target, LIBRARY), { ...mergeLibrary(readJsonFile(path.join(target, LIBRARY)) || {}, pick(readShared(), SHARED)), v: 1 });
     } catch {
       throw new Error("notesdisk");
     }
@@ -482,7 +488,7 @@ ipcMain.handle(
     flushProgress();
     if (data.reachable) {
       reader.mergeNotes(data.dir, app.getPath("userData"));
-      writeSettings(mergeLibrary(readJsonFile(path.join(data.dir, LIBRARY)), pick(readSettings(), SHARED)));
+      writeSettings(mergeLibrary(readJsonFile(path.join(data.dir, LIBRARY)) || lastShared || {}, pick(readSettings(), SHARED)));
     }
     writeSettings({ dataDir: null });
     applyDataDir();
