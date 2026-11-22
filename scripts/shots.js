@@ -175,6 +175,17 @@ app.whenReady().then(async () => {
     await sleep(600);
     await shot("notes");
 
+    // Chapters as PDF: the sheet with two chapters picked.
+    await js(`setTool('hand'); setSide(false); openSheet(state.reading)`);
+    await sleep(900);
+    await js(`document.querySelector('[data-range=chapter]').click()`);
+    await until(`document.getElementById('fromChapter').options.length > 5`, 30000);
+    await js(`$('fromChapter').value = '4'; $('fromChapter').dispatchEvent(new Event('change')); $('toChapter').value = '5'; $('toChapter').dispatchEvent(new Event('change'))`);
+    await sleep(600);
+    await shot("chapters");
+    await js(`setRange('all'); closeSheet()`);
+    await sleep(400);
+
     // Saving this book as PDF, with the page being saved.
     await js(`setTool('hand'); setSide(false); openSheet(state.reading)`);
     await sleep(900);

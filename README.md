@@ -13,11 +13,15 @@ own notes on the pages, and as PDFs when you need them offline.
   shows how far you have read each book.
 - **A reader of its own.** A book opens in Stapel's reader: table of contents, search,
   bookmarks, one or two pages, zoom. Scrolling turns one page per gesture.
-- **Write on the pages.** Pen, highlighter, typed text and an eraser, with undo. Your notes are
-  kept on this computer; they are not sent to Edubase and do not appear in Edubase's own apps.
-- **Save as PDF.** One book, a range of pages, or many books in one go, sorted into folders
-  like in the app. Your notes can be printed into the PDF. Letters stay sharp at any zoom,
-  but the text of a saved book cannot be searched or copied: Edubase draws letters as shapes.
+- **Write on the pages.** Pen, highlighter, typed text and an eraser, with undo. What you mark
+  with the highlighter is listed as text in the notes, chapter by chapter, and the whole list
+  copies as a study sheet into Word, Pages, Notion or GoodNotes. Dark pages for reading at night.
+- **Your notes, backed up.** Notes, bookmarks and folders stay on your computer, or in a folder
+  you choose, such as iCloud Drive or OneDrive: then every computer that uses that folder has
+  them. They are not sent to Edubase and do not appear in Edubase's own apps.
+- **Save as PDF.** A whole book, some chapters, a range of pages, or many books in one go,
+  sorted into folders like in the app. The PDF can be searched and its text copied, it has the
+  book's table of contents and page numbers, and your notes can be printed into it.
 - **Sign in once.** You sign in on Edubase's own page, also with Office 365, Edulog, Google or
   Apple. The app never sees your password and stays signed in.
 - English and German.
@@ -73,8 +77,13 @@ only books you have a licence for, and keep the PDFs to yourself.** Edubase's te
 copies to what you personally need.
 
 Folders, reading positions, bookmarks and notes are Stapel's own and stay on your computer (in
-the app's data folder). Edubase does not know about them. Notes made in Edubase's own reader
-are a separate thing: Stapel's tools do not change them.
+the app's data folder), or in the folder you chose under Settings. Edubase does not know about
+them. Notes made in Edubase's own reader are a separate thing: Stapel's tools do not change them.
+
+With a chosen folder, two computers that use it at the same time each write their own changes;
+when both change the same book at the same moment, the one that saves last wins for that book.
+A folder that cannot be reached (a USB stick that is not plugged in) is not written to: new
+notes stay on this computer until it is back, and are added to it then.
 
 If Edubase changes its website and Stapel's reader stops working, the menu at the right end of
 the reader's toolbar switches to Edubase's own view until Stapel is updated.
@@ -85,17 +94,20 @@ Stapel is an Electron app. The reader is a `<webview>` of app.edubase.ch in its 
 (`persist:edubase`), locked to that site. Stapel hides Edubase's bars with a stylesheet and
 runs a script in the page that reports what is on screen, takes commands from Stapel's toolbar
 and draws the notes as an SVG layer over each page. For a PDF, a hidden window opens the book,
-waits until each page has finished loading, draws the notes on it, prints it with Chromium's
-own PDF printer and merges the pages with `pdf-lib`.
+waits until each page has finished loading, draws the notes on it, lays Edubase's list of the
+page's words over the letters as invisible text, prints it with Chromium's own PDF printer and
+merges the pages with `pdf-lib`, adding the table of contents and the page numbers.
 
 - `edubase.js` – sign-in window, library, saving a book as PDF
 - `reader.js` – the reader's side in the main process: commands, notes on disk
-- `reader/` – what runs inside Edubase's page (`inject.js`, `ink.js`) and the stylesheets
+- `reader/` – what runs inside Edubase's page (`inject.js`; `ink.js` draws the notes, `book.js`
+  reads the table of contents and the words of a page) and the stylesheets
 - `reader-preload.js` – the one channel from that page to the app
 - `update.js` – looks for a newer release, downloads it, swaps it in
 - `main.js` – window, reader lock-down, settings, folders, IPC
 - `preload.js` – the bridge the interface may call
-- `ui/` – the interface (`library.js`, `reader.js`, `pdf.js`; `i18n.js` holds all text)
+- `ui/` – the interface (`library.js`, `reader.js`, `pdf.js`, `settings.js`; `i18n.js` holds all
+  text)
 
 ```sh
 npm install
@@ -118,9 +130,9 @@ of the new version runs without questions and starts the app again.
 
 Edubase can change its website at any time. What Stapel relies on is in `edubase.js`
 (`.lu-library-item`, `.lu-profile-settings__login`, `[data-item=page-settings]`,
-`[data-action=footer-next-page]`) and in `reader/` (`.doc-page-wrapper`, `.lu-toc-list`,
-`.lu-search-snippet`, the `data-action` buttons for zoom and page mode, and the ids of the
-bars that are hidden).
+`[data-action=footer-next-page]`) and in `reader/` (`.doc-page-wrapper`, `.lu-page-word` with
+`data-w` and `data-pos`, `.lu-docpanel-toc`, `.lu-search-snippet`, the `data-action` buttons for
+zoom and page mode, and the ids of the bars that are hidden).
 
 ## Licence
 
