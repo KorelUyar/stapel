@@ -17,18 +17,32 @@ let updating = null; // { token } while an update is downloaded and installed
 
 const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
 
+// Only a missing file means "no settings yet". A file a virus scanner holds for a moment is
+// read as it was last time, and not written over while nothing is known about it; a file that
+// is not JSON is put aside and starts again.
+let lastSettings = null;
 function readSettings() {
   try {
-    return JSON.parse(fs.readFileSync(settingsFile(), "utf8"));
-  } catch {
-    return {};
+    const d = JSON.parse(fs.readFileSync(settingsFile(), "utf8"));
+    lastSettings = d && typeof d === "object" && !Array.isArray(d) ? d : {};
+  } catch (err) {
+    if (err.code === "ENOENT") lastSettings = {};
+    else if (err instanceof SyntaxError) {
+      try {
+        fs.renameSync(settingsFile(), `${settingsFile()}.broken-${Date.now()}`);
+      } catch {}
+      lastSettings = {};
+    }
   }
+  return { ...(lastSettings || {}) };
 }
 
 // Written to a second file first and then swapped in, so a crash in the middle of a write
 // cannot leave half a file (folders and reading positions live here).
 function writeSettings(patch) {
-  const next = { ...readSettings(), ...patch };
+  const current = readSettings();
+  if (lastSettings === null) return { ...current, ...patch }; // unreadable: not written over
+  const next = { ...current, ...patch };
   try {
     fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
     const tmp = settingsFile() + ".tmp";
@@ -111,7 +125,7 @@ function readJsonFile(file) {
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (err) {
-    if (err.code === "ENOENT") return {};
+    if (err.code === "ENOENT" && !reader.inCloud(file)) return {};
     throw new Error("notesunavailable");
   }
   try {
@@ -159,7 +173,9 @@ function writeShared(patch) {
     told = true;
     return false;
   }
-  const next = { ...(base || lastShared || {}), ...patch, v: 1 };
+  // Missing or put aside because it was broken: what was read before is the base, not nothing.
+  const known = base && Object.keys(base).length ? base : lastShared || {};
+  const next = { ...known, ...patch, v: 1 };
   try {
     writeJson(file, next);
   } catch {
@@ -234,6 +250,7 @@ function applyDataDir() {
   lastShared = null;
   told = false;
   progressMine = {};
+  progressSeen = {};
   reader.setDataRoot(dir && data.reachable ? dir : null);
   if (!dir || !data.reachable) return;
   // What was written on this computer while the folder could not be reached (or before it
@@ -252,7 +269,8 @@ function applyDataDir() {
       const file = path.join(dir, LIBRARY);
       const theirs = readJsonFile(file) || {};
       writeJson(file, { ...theirs, ...mergeLibrary(theirs, pick(s, SHARED)), v: 1 });
-      writeSettings({ fallbackEdits: false });
+      // Carried over: gone from here, so it does not come back another time.
+      writeSettings({ ...Object.fromEntries(SHARED.map((k) => [k, undefined])), fallbackEdits: false });
     } catch {}
   }
 }
@@ -293,9 +311,9 @@ function cleanShelf(input) {
 
 const readShelf = () => cleanShelf(readShared());
 
-// The window's folders against what is on disk now: only what the window changed since it
-// last loaded or saved them is applied, so another computer's changes in between stay.
-let shelfBase = null; // what the window believes: its last load or its last save
+// The window's folders against what is on disk now: only what the window changed since the
+// state it started from (its last load or its last save, which it sends along) is applied,
+// so another computer's changes in between stay.
 function mergeShelf(base, mine, theirs) {
   const b = new Map(base.folders.map((f) => [f.id, f]));
   const m = new Map(mine.folders.map((f) => [f.id, f]));
@@ -320,24 +338,25 @@ function mergeShelf(base, mine, theirs) {
 // Where each book was last read. Only the books read in this session are written (into what
 // is on disk then), a moment after the page changes and when the app quits.
 let progressMine = {};
+let progressSeen = {}; // book id -> the position last known for it in this session
 let progressTimer = null;
 const getProgress = () => ({ ...cleanPositions(readShared().progress), ...progressMine });
 function flushProgress() {
   clearTimeout(progressTimer);
   progressTimer = null;
   if (!Object.keys(progressMine).length) return;
-  const mine = progressMine;
-  if (writeShared({ progress: later(cleanPositions(readShared().progress), mine) })) {
-    for (const id of Object.keys(mine)) if (progressMine[id] === mine[id]) delete progressMine[id];
+  if (writeShared({ progress: later(cleanPositions(readShared().progress), progressMine) })) {
+    progressMine = {};
   } else {
     progressTimer = setTimeout(flushProgress, 30000); // tried again
   }
 }
 function noteProgress(state) {
   if (!state.ready || !isBookId(state.id) || !/^\d+$/.test(state.page || "")) return;
-  const had = progressMine[state.id] || cleanPositions(readShared().progress)[state.id];
+  if (!(state.id in progressSeen)) progressSeen[state.id] = cleanPositions(readShared().progress)[state.id] || null;
+  const had = progressSeen[state.id];
   if (had?.page === +state.page && had?.total === state.total) return;
-  progressMine[state.id] = { page: +state.page, total: state.total, at: Date.now() };
+  progressMine[state.id] = progressSeen[state.id] = { page: +state.page, total: state.total, at: Date.now() };
   progressTimer ??= setTimeout(flushProgress, 1500);
 }
 
@@ -529,14 +548,13 @@ ipcMain.handle("opened", (_e, id) => {
   writeShared({ recent });
 });
 
-ipcMain.handle("shelf", () => (shelfBase = readShelf()));
-ipcMain.handle("save-shelf", (_e, input) => {
+ipcMain.handle("shelf", () => readShelf());
+// `written` false: the library cannot be read now; the window keeps its base, so its next
+// save carries this change along.
+ipcMain.handle("save-shelf", (_e, input, base) => {
   const mine = cleanShelf(input);
-  const merged = mergeShelf(shelfBase || mine, mine, readShelf());
-  // Not written (the library cannot be read now): the base stays, so the next save carries
-  // this change along.
-  if (writeShared(merged)) shelfBase = mine;
-  return merged;
+  const from = base ? cleanShelf(base) : { folders: [], shelf: {}, sort: mine.sort };
+  return { written: writeShared(mergeShelf(from, mine, readShelf())) };
 });
 
 // ---------------------------------------------------------------- IPC: the notes folder
@@ -573,17 +591,21 @@ ipcMain.handle(
     const carried = !data.dir || data.reachable;
     const fromRoot = data.dir && data.reachable ? data.dir : own;
     try {
+      // What is to come along has to be readable, or it would be left behind.
+      const current = libraryFile() ? readJsonFile(libraryFile()) || lastShared || {} : readSettings();
       fs.mkdirSync(target, { recursive: true });
       reader.mergeNotes(fromRoot, target);
       const file = path.join(target, LIBRARY);
       const theirs = readJsonFile(file) || {};
-      writeJson(file, { ...theirs, ...mergeLibrary(theirs, pick(readShared(), SHARED)), v: 1 });
+      writeJson(file, { ...theirs, ...mergeLibrary(theirs, pick(current, SHARED)), v: 1 });
     } catch (err) {
       throw new Error(["notesunavailable", "notesnewer"].includes(err.message) ? err.message : "notesdisk");
     }
-    // From here on the folder is the place. The notes on this computer are put aside by
-    // applyDataDir, after the setting is on disk (a crash in between leaves them where they are).
-    writeSettings({ dataDir: target, fallbackEdits: false });
+    // From here on the folder is the place: folders and positions leave settings.json (an old
+    // copy there would come back after a day without the folder). The notes on this computer
+    // are put aside by applyDataDir, after the setting is on disk.
+    const gone = Object.fromEntries(SHARED.map((k) => [k, undefined]));
+    writeSettings({ ...gone, dataDir: target, fallbackEdits: false });
     if (chosenDir() !== target) throw new Error("notesdisk");
     applyDataDir();
     return { ...dataInfo(), changed: true, carried };
@@ -674,7 +696,7 @@ function saveBook(book, dir, onProgress, token) {
         from: Number.isInteger(book.from) ? book.from : undefined,
         to: Number.isInteger(book.to) ? book.to : undefined,
         outputDir: dir,
-        ink: book.notes === false ? null : reader.load(String(book.id)).pages,
+        ink: book.notes === false ? null : reader.printable(String(book.id)),
         inkAssets: { js: reader.INK_JS + "\n" + reader.BOOK_JS, css: reader.INK_CSS },
       },
       onProgress,

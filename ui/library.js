@@ -12,9 +12,7 @@ async function loadLibrary({ quiet = false } = {}) {
   try {
     const [books, shelf] = await Promise.all([window.app.library(), window.app.shelf()]);
     state.books = books;
-    state.folders = shelf.folders;
-    state.shelf = shelf.shelf;
-    state.sort = shelf.sort;
+    adoptShelf(shelf);
     if (state.folder && !folderById(state.folder)) state.folder = null;
     for (const id of [...state.selected]) if (!bookById(id)) state.selected.delete(id);
     $("guestNote").hidden = state.loggedIn;
@@ -44,8 +42,21 @@ const bookById = (id) => state.books.find((b) => b.id === id);
 const folderById = (id) => state.folders.find((f) => f.id === id);
 const booksIn = (folderId) => state.books.filter((b) => (state.shelf[b.id] || null) === folderId);
 
-function saveShelf() {
-  return window.app.saveShelf({ folders: state.folders, shelf: state.shelf, sort: state.sort });
+// The folders as this window got them; saves send it along, so only what changed here is
+// applied to what is on disk (another computer may have changed something meanwhile).
+function adoptShelf(shelf) {
+  state.folders = shelf.folders;
+  state.shelf = shelf.shelf;
+  state.sort = shelf.sort;
+  state.shelfBase = JSON.parse(JSON.stringify(shelf));
+}
+
+async function saveShelf() {
+  const mine = JSON.parse(JSON.stringify({ folders: state.folders, shelf: state.shelf, sort: state.sort }));
+  const r = await window.app.saveShelf(mine, state.shelfBase);
+  // Not written: the base stays, so the next save carries this change along.
+  if (r && r.written) state.shelfBase = mine;
+  return r;
 }
 
 function sorted(books) {

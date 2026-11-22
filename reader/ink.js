@@ -81,7 +81,8 @@
     text.replaceChildren();
     for (const it of items || []) {
       if (it.t === "text") text.append(textNode(it, height));
-      else (it.t === "hl" ? hl : pen).append(strokeNode(it));
+      else if (it.t === "hl" || it.t === "pen") (it.t === "hl" ? hl : pen).append(strokeNode(it));
+      // other kinds (from a newer Stapel) are not drawn here
     }
     return el;
   }

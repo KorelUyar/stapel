@@ -5,6 +5,7 @@
 const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const { execFile } = require("child_process");
 
 const EDUBASE = "https://app.edubase.ch/";
 const read = (name) => fs.readFileSync(path.join(__dirname, "reader", name), "utf8");
@@ -31,6 +32,15 @@ const notesDirIn = (root) => path.join(root, "notes");
 const notesDir = () => notesDirIn(dataRoot || app.getPath("userData"));
 const notesFile = (id, dir = notesDir()) => path.join(dir, `${id}.json`);
 
+// iCloud Drive before macOS 14 keeps a file that is not downloaded as ".name.icloud" next to
+// where it belongs. Such a file is there, only not here yet: it is asked for, and read later.
+function inCloud(file) {
+  const stub = path.join(path.dirname(file), `.${path.basename(file)}.icloud`);
+  if (!fs.existsSync(stub)) return false;
+  if (process.platform === "darwin") execFile("/usr/bin/brctl", ["download", stub], () => {});
+  return true;
+}
+
 // Only a file that is not there means "no notes". A file that is there but cannot be read
 // right now (not downloaded yet from iCloud Drive or OneDrive, locked by another program)
 // throws: saving over it would keep one page and lose the rest.
@@ -44,7 +54,7 @@ function load(id, dir) {
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (err) {
-    if (err.code === "ENOENT") return empty(); // no notes yet
+    if (err.code === "ENOENT" && !inCloud(file)) return empty(); // no notes yet
     throw new Error("notesunavailable");
   }
   let d;
@@ -250,6 +260,12 @@ function mergeNotes(fromRoot, toRoot) {
   } catch {
     return 0;
   }
+  // Notes that are still in iCloud only would be left behind: asked for, and tried later.
+  const away = files.filter((f) => /^\.\d+\.json\.icloud$/.test(f));
+  if (away.length) {
+    for (const f of away) inCloud(path.join(from, f.slice(1, -7)));
+    throw new Error("notesunavailable");
+  }
   // Throws (and changes nothing more) when a file on either side cannot be read now.
   let books = 0;
   for (const f of files) {
@@ -317,21 +333,33 @@ function writeAll() {
 // ---------------------------------------------------------------- reading what the page needs
 
 // A book's notes go to the page only once they could be read; until then the page does not
-// let anyone draw (inject.js), so nothing can be saved over notes that are not loaded.
+// let anyone draw (inject.js), so nothing can be saved over notes that are not loaded. Tried
+// again as long as the book is open. What is drawn but not on disk yet goes along. Notes of a
+// newer Stapel are shown, not changed.
 function sendNotes(id, attempt = 0) {
   if (id !== openId()) return;
-  let pages;
+  let data;
   try {
-    pages = knownPages(load(id).pages);
+    data = load(id);
   } catch (err) {
     if (attempt === 0) notify("error", problem(err));
-    if (attempt < 20) setTimeout(() => sendNotes(id, attempt + 1), 3000);
+    setTimeout(() => sendNotes(id, attempt + 1), Math.min(10000, 2000 + attempt * 1000));
     return;
   }
-  run(`window.__stapel && window.__stapel.cmd("ink", ${JSON.stringify({ id, pages })})`);
+  const pages = knownPages(data.pages);
+  for (const [page, items] of unsaved.get(id) || []) {
+    if (items.length) pages[page] = items;
+    else delete pages[page];
+  }
+  const readOnly = data.v > 1;
+  if (readOnly) notify("error", "notesnewer");
+  run(`window.__stapel && window.__stapel.cmd("ink", ${JSON.stringify({ id, pages, readOnly })})`);
   const sum = summary(id);
   if (sum) notify("notes", sum);
 }
+
+// The notes of a book as the PDF prints them: the kinds this version can draw.
+const printable = (id) => knownPages(load(id).pages);
 
 function setDataRoot(dir) {
   dataRoot = dir || null;
@@ -446,6 +474,8 @@ module.exports = {
   studySheet,
   counts,
   toggleBookmark,
+  printable,
+  inCloud,
   writeAll,
   mergeNotes,
   setDataRoot,

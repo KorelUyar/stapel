@@ -57,8 +57,7 @@ async function moveNotes(where) {
     // A folder that could not be reached kept what is in it.
     const left = info.carried === false && before.name ? " " + t("setLeftBehind", before.name) : "";
     toast((where === "here" ? t("setBack") : t("setMoved", info.name)) + left);
-    const shelf = await window.app.shelf();
-    Object.assign(state, { folders: shelf.folders, shelf: shelf.shelf, sort: shelf.sort });
+    adoptShelf(await window.app.shelf());
     if (state.folder && !state.folders.some((f) => f.id === state.folder)) state.folder = null;
     if (state.screen === "library") {
       renderLibrary();

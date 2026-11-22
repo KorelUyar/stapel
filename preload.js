@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld("app", {
   opened: (id) => ipcRenderer.invoke("opened", id),
   marks: () => ipcRenderer.invoke("marks"),
   shelf: () => ipcRenderer.invoke("shelf"),
-  saveShelf: (shelf) => ipcRenderer.invoke("save-shelf", shelf),
+  saveShelf: (shelf, base) => ipcRenderer.invoke("save-shelf", shelf, base),
   download: (book) => call("download", book),
   downloadMany: (books, options) => call("download-many", books, options),
   cancel: () => ipcRenderer.invoke("cancel"),

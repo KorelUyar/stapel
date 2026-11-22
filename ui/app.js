@@ -7,6 +7,7 @@ const state = {
   books: [],
   folders: [], // { id, name, color }
   shelf: {}, // book id -> folder id
+  shelfBase: null, // the folders as last loaded or saved (ui/library.js adoptShelf)
   sort: "recent",
   folderColors: [],
   folder: null, // the folder being looked at

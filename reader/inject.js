@@ -141,6 +141,7 @@
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
   function setItems(page, items, record = true) {
+    if (book.readOnly) return; // notes of a newer Stapel are not changed here
     const before = copy(book.pages[page] || []);
     if (items.length) book.pages[page] = items;
     else delete book.pages[page];
@@ -313,8 +314,8 @@
       if (tool.name === "hand") return;
       e.stopPropagation();
       // Not before this book's notes have arrived from the app: a line drawn now would be
-      // saved as all there is on the page.
-      if (e.button !== 0 || !book.loaded) return;
+      // saved as all there is on the page. Nor on notes of a newer Stapel.
+      if (e.button !== 0 || !book.loaded || book.readOnly) return;
       const onText = e.target.closest && e.target.closest(".stapel-text");
       if (editing) {
         if (onText === editing.div) return; // a click inside the text being written
@@ -625,7 +626,7 @@
     searchGo,
     ink: (data) => {
       if (!data || data.id !== where().id) return;
-      book = { id: data.id, pages: data.pages || {}, loaded: true };
+      book = { id: data.id, pages: data.pages || {}, loaded: true, readOnly: data.readOnly === true };
       rev++;
       sync();
     },
