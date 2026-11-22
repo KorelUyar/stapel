@@ -839,7 +839,7 @@ ipcMain.on("reader-event", (e, type, data) => {
 
 ipcMain.handle("reader-cmd", (_e, name, arg) => reader.cmd(String(name), arg));
 ipcMain.handle("notes", (_e, id) => reader.summary(String(id)));
-ipcMain.handle("study-sheet", (_e, id) => reader.studySheet(String(id)));
+ipcMain.handle("study-sheet", wrap((id) => reader.studySheet(String(id))));
 // The study sheet, for pasting into Word, Pages, Notion or GoodNotes (text and formatted).
 ipcMain.handle("copy", async (_e, text, html) => {
   const item = new ClipboardItem({

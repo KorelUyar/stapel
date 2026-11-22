@@ -32,6 +32,16 @@ own notes on the pages, and as PDFs when you need them offline.
 </picture>
 
 <picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/notes-dark.webp">
+  <img src="docs/notes-light.webp" alt="The notes beside the page: what was highlighted, as text, under its chapter, and the button to copy it all as a study sheet" width="945">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/chapters-dark.webp">
+  <img src="docs/chapters-light.webp" alt="Saving two chapters of a book as PDF: the first and the last chapter picked, pages 11 to 19" width="945">
+</picture>
+
+<picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/select-dark.webp">
   <img src="docs/select-light.webp" alt="Several books picked in the library, with the bar to move them or save them as PDF" width="945">
 </picture>

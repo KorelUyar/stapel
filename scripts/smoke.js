@@ -180,6 +180,7 @@ app.whenReady().then(async () => {
     await js(`setSide(true, 'notes')`);
     await sleep(1500);
     await shot("3-reader");
+    await clipboard.writeText(""); // nothing left over from an earlier run
     await js(`document.querySelector('#panelNotes .panel-action').click()`);
     await sleep(800);
     const sheet = await clipboard.readText();
