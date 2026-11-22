@@ -164,6 +164,8 @@ window.app.onReader((type, data) => {
   } else if (type === "key") {
     if (data === "find") openFind();
     if (data === "escape") setTool("hand");
+  } else if (type === "error") {
+    toast(t("err." + data));
   }
 });
 
@@ -314,7 +316,7 @@ function renderPanel() {
       remove.onclick = async (e) => {
         e.stopPropagation();
         const s = await window.app.bookmark(r.id, page);
-        r.marks = s.bookmarks;
+        if (s) r.marks = s.bookmarks;
         renderReader();
       };
       b.append(remove);
@@ -391,7 +393,12 @@ const tint = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.
 // text (headings, the marks in their colour) for Word, Pages, Notion or GoodNotes.
 async function copyStudySheet() {
   if (!r.id) return;
-  const pages = (await window.app.studySheet(r.id)).filter((p) => p.items.length || p.drawings);
+  let pages;
+  try {
+    pages = (await window.app.studySheet(r.id)).filter((p) => p.items.length || p.drawings);
+  } catch (err) {
+    return toast(errorText(err));
+  }
   const title = t("studyTitle", state.reading?.title || "Stapel");
   const text = [title, ""];
   const html = [`<h1>${esc(title)}</h1>`];
@@ -467,7 +474,7 @@ $("markBtn").onclick = async () => {
   // With two pages on screen, the bookmark that is there is the one to take away.
   const marked = r.pages.find((p) => r.marks.includes(p));
   const s = await window.app.bookmark(r.id, marked || r.page);
-  r.marks = s.bookmarks;
+  if (s) r.marks = s.bookmarks;
   renderReader();
 };
 

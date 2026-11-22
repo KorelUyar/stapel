@@ -183,6 +183,12 @@ const STRINGS = {
     setAway: (f) => `${f} cannot be reached. Until it is back, new notes stay on this computer; then they are added to it.`,
     "err.ownfolder": "This folder belongs to Stapel itself. Choose another one.",
     "err.notesdisk": "The notes could not be written there. Can Stapel write to that folder?",
+    "err.notesunavailable": "The notes of this book cannot be read right now (is the folder still being synced?). Stapel keeps trying; until then nothing is saved for this book.",
+    "err.notesnewer": "These notes were saved by a newer Stapel. Update Stapel to change them.",
+    "err.notessave": "Your last change could not be saved. Can Stapel write to the notes folder?",
+    "err.libraryunavailable": "Your folders and reading positions cannot be read right now (is the folder still being synced?). Changes are saved once it can be read again.",
+    "err.librarysave": "Your folders and reading positions could not be saved. Can Stapel write to the notes folder?",
+    setLeftBehind: (f) => `What is in ${f} stayed there: it could not be reached.`,
   },
   de: {
     connecting: "Verbinde mit Edubase …",
@@ -365,6 +371,12 @@ const STRINGS = {
     setAway: (f) => `${f} ist nicht erreichbar. Bis er wieder da ist, bleiben neue Notizen auf diesem Computer und kommen dann dazu.`,
     "err.ownfolder": "Dieser Ordner gehört Stapel selbst. Wähle einen anderen.",
     "err.notesdisk": "Die Notizen konnten dort nicht gespeichert werden. Darf Stapel in diesen Ordner schreiben?",
+    "err.notesunavailable": "Die Notizen dieses Buches können gerade nicht gelesen werden (wird der Ordner noch synchronisiert?). Stapel versucht es weiter; bis dahin wird für dieses Buch nichts gespeichert.",
+    "err.notesnewer": "Diese Notizen stammen von einem neueren Stapel. Aktualisiere Stapel, um sie zu ändern.",
+    "err.notessave": "Deine letzte Änderung konnte nicht gespeichert werden. Darf Stapel in den Notizen-Ordner schreiben?",
+    "err.libraryunavailable": "Deine Ordner und Lesepositionen können gerade nicht gelesen werden (wird der Ordner noch synchronisiert?). Änderungen werden gespeichert, sobald es wieder geht.",
+    "err.librarysave": "Deine Ordner und Lesepositionen konnten nicht gespeichert werden. Darf Stapel in den Notizen-Ordner schreiben?",
+    setLeftBehind: (f) => `Was in ${f} liegt, ist dort geblieben: Der Ordner war nicht erreichbar.`,
   },
 };
 

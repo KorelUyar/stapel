@@ -96,11 +96,13 @@
     }
     const hit = [];
     for (const word of list) {
-      const mid = word.y + word.h / 2;
+      // The line's band has to lie over the word, not just touch it: a wide highlighter on
+      // close lines would otherwise take the lines above and below along.
+      const enough = Math.min(word.h * 0.5, width * 0.6);
       let lo = Infinity;
       let hi = -Infinity;
       for (const [x, y] of pts) {
-        if (Math.abs(y - mid) > half + word.h * 0.35) continue;
+        if (Math.min(y + half, word.y + word.h) - Math.max(y - half, word.y) < enough) continue;
         if (x < word.x - half || x > word.x + word.w + half) continue;
         if (x < lo) lo = x;
         if (x > hi) hi = x;

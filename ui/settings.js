@@ -51,9 +51,12 @@ async function openSettings() {
 // Moves notes and folders, then shows the library as it is in the new place.
 async function moveNotes(where) {
   try {
+    const before = await window.app.dataDir();
     const info = where === "here" ? await window.app.resetDataDir() : await window.app.chooseDataDir(where);
-    if (where === "here") toast(t("setBack"));
-    else if (info.dir) toast(t("setMoved", info.name));
+    if (!info.changed) return;
+    // A folder that could not be reached kept what is in it.
+    const left = info.carried === false && before.name ? " " + t("setLeftBehind", before.name) : "";
+    toast((where === "here" ? t("setBack") : t("setMoved", info.name)) + left);
     const shelf = await window.app.shelf();
     Object.assign(state, { folders: shelf.folders, shelf: shelf.shelf, sort: shelf.sort });
     if (state.folder && !state.folders.some((f) => f.id === state.folder)) state.folder = null;
@@ -67,3 +70,6 @@ async function moveNotes(where) {
 }
 
 $("settingsBtn").onclick = openSettings;
+
+// From the main process: the library in the notes folder could not be read or written.
+window.app.onNotice((code) => toast(t("err." + code)));

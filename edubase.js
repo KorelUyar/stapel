@@ -363,10 +363,11 @@ function addOutline(doc, toc, at) {
   doc.catalog.set(PDFName.of("Outlines"), outlinesRef);
 }
 
-// A PDF of pages 23 to 41 numbers its pages 23 to 41, like the book.
+// A PDF of pages 23 to 41 numbers its pages 23 to 41, like the book. Only when every page of
+// the book became one page of the PDF, in order.
 function addPageNumbers(doc, printed) {
   const first = Number(printed[0]);
-  if (!(first > 1) || !printed.every((p, i) => p === String(first + i))) return;
+  if (!(first > 1) || doc.getPageCount() !== printed.length || !printed.every((p, i) => p === String(first + i))) return;
   doc.catalog.set(PDFName.of("PageLabels"), doc.context.obj({ Nums: [0, { S: "D", St: first }] }));
 }
 
@@ -447,9 +448,14 @@ async function download(job, onProgress, token) {
     // Edubase prints a black frame around every page; a saved book reads better without.
     await getWorker().webContents.insertCSS("@media print { .doc-page-wrapper { border: 0 !important; } }");
 
-    // The notes and the words of every page are drawn by the app's own scripts.
-    await getWorker().webContents.insertCSS(job.inkAssets.css);
-    await js(job.inkAssets.js);
+    // The notes and the words of every page are drawn by the app's own scripts. Should
+    // edubase load its page anew in the middle of a book, they are put in again.
+    const assets = async () => {
+      if (await js(`!!(window.__stapelInk && window.__stapelBook)`).catch(() => false)) return;
+      await getWorker().webContents.insertCSS(job.inkAssets.css);
+      await js(job.inkAssets.js);
+    };
+    await assets();
     const ink = job.ink && Object.keys(job.ink).length ? job.ink : null;
     const tocRead = readToc(token).catch(() => []);
     const last = Math.min(job.to || opened.total, opened.total);
@@ -478,16 +484,18 @@ async function download(job, onProgress, token) {
       }
 
       const page = String((await readPager()).page);
+      await assets();
       if (ink) {
         const items = Object.prototype.hasOwnProperty.call(ink, page) ? ink[page] : [];
         await js(`window.__stapelInk.drawPage(${JSON.stringify(page)}, ${JSON.stringify(items)})`);
       }
       // The words as invisible text, so the PDF can be searched. A page whose words have not
-      // arrived yet gets a second look; a page without text (a picture) has none.
-      const layer = `window.__stapelBook.textLayerOf(${JSON.stringify(page)})`;
-      if ((await js(layer)) === 0) {
+      // arrived yet gets a second look; a page without text (a picture) has none. This never
+      // stops a save: without it the page is still the page.
+      const layer = `window.__stapelBook ? window.__stapelBook.textLayerOf(${JSON.stringify(page)}) : -1`;
+      if ((await js(layer).catch(() => -1)) === 0) {
         await sleep(500);
-        await js(layer);
+        await js(layer).catch(() => -1);
       }
 
       const pdf = await getWorker().webContents.printToPDF({
@@ -510,7 +518,8 @@ async function download(job, onProgress, token) {
     }
 
     onProgress({ phase: "merge", current: files.length, total: count });
-    const toc = await tocRead;
+    // A book without a table of contents is not waited for any longer than a moment.
+    const toc = await Promise.race([tocRead, sleep(2500).then(() => [])]);
     const merged = await PDFDocument.create();
     const name = job.part ? `${title} – ${job.part}` : title;
     merged.setTitle(name);

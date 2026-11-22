@@ -175,7 +175,13 @@
     quoted.add(key);
     setTimeout(() => {
       if (!docPage.isConnected || book.pages[page] !== items) return quoted.delete(key); // next time
-      const next = copy(items).map((i) => (i.t === "hl" && typeof i.q !== "string" ? { ...i, q: edu.quote(docPage, i.p, i.w) ?? "" } : i));
+      const next = copy(items);
+      for (const i of next) {
+        if (i.t !== "hl" || typeof i.q === "string") continue;
+        const words = edu.quote(docPage, i.p, i.w);
+        if (words === null) return quoted.delete(key); // the page is being laid out: next time
+        i.q = words;
+      }
       setItems(page, next, false);
     }, 0);
   }

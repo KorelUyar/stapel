@@ -10,17 +10,20 @@ function chapterList(toc) {
   const numbered = (toc || []).filter((e) => /^\d+$/.test(e.page));
   const levels = [...new Set(numbered.map((e) => e.level))].sort((a, b) => a - b);
   const level = levels.find((l) => numbered.filter((e) => e.level === l).length > 1) ?? levels[0];
-  return numbered.filter((e) => e.level === level);
+  // In the order of the pages (a table of contents can list the solutions of chapter 1 at the
+  // end of the book right after chapter 1).
+  return numbered.filter((e) => e.level === level).sort((a, b) => +a.page - +b.page);
 }
 
-// From the start of the first chosen chapter to the page before the next chapter (or the end).
+// From the start of the first chosen chapter to the page before the next chapter starts (or
+// the end of the book).
 function chapterRange() {
   const list = state.chapters || [];
   const a = +$("fromChapter").value;
   const b = Math.max(a, +$("toChapter").value);
   if (!list[a] || !list[b]) return null;
   const from = +list[a].page;
-  const next = list.slice(b + 1).find((e) => +e.page > from);
+  const next = list.find((e) => +e.page > +list[b].page);
   const to = next ? Math.max(from, +next.page - 1) : undefined;
   const part = a === b ? list[a].title : t("partChapters", list[a].title, list[b].title);
   return { from, to, part };

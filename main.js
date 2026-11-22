@@ -65,7 +65,25 @@ const chosenDir = () => {
   return typeof d === "string" && path.isAbsolute(d) ? d : null;
 };
 const iCloudDrive = () => path.join(app.getPath("home"), "Library", "Mobile Documents", "com~apple~CloudDocs");
-const hasStapelData = (dir) => fs.existsSync(path.join(dir, LIBRARY)) || fs.existsSync(path.join(dir, "notes"));
+// Windows names the user's OneDrive folder in an environment variable.
+const oneDrive = () => (!isMac && process.env.OneDrive && path.isAbsolute(process.env.OneDrive) && fs.existsSync(process.env.OneDrive) ? process.env.OneDrive : null);
+const hasStapelData = (dir) => fs.existsSync(path.join(dir, LIBRARY));
+
+// The same folder, whatever way it is written (links, upper and lower case on Mac and Windows).
+function realPath(p) {
+  let real;
+  try {
+    real = fs.realpathSync.native(p);
+  } catch {
+    real = path.resolve(p);
+  }
+  return process.platform === "linux" ? real : real.toLowerCase();
+}
+const inside = (child, parent) => {
+  const c = realPath(child);
+  const p = realPath(parent);
+  return c === p || c.startsWith(p + path.sep);
+};
 
 // A folder that is gone (a USB stick that is not plugged in) cannot hold notes: until it is
 // back, they are kept on this computer. A folder whose parent is there is made again.
@@ -84,15 +102,22 @@ function reach(dir) {
 
 const libraryFile = () => (data.dir && data.reachable ? path.join(data.dir, LIBRARY) : null);
 
-let lastShared = null; // the library as last read from the folder
-// {} when there is no file yet; null when it cannot be read (then it is put aside, not
-// overwritten, as with notes in reader.js).
+// {} when there is no file yet. A file that is there but cannot be read now (not downloaded
+// yet, held by another program) throws: it must not be taken for an empty library and
+// written over. A file that is not JSON is put aside (what is in it is kept there) and gives
+// null.
 function readJsonFile(file) {
+  let text;
   try {
-    const d = JSON.parse(fs.readFileSync(file, "utf8"));
-    return d && typeof d === "object" && !Array.isArray(d) ? d : {};
+    text = fs.readFileSync(file, "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return {};
+    throw new Error("notesunavailable");
+  }
+  try {
+    const d = JSON.parse(text);
+    return d && typeof d === "object" && !Array.isArray(d) ? d : {};
+  } catch {
     try {
       fs.renameSync(file, `${file}.broken-${Date.now()}`);
     } catch {}
@@ -100,32 +125,69 @@ function readJsonFile(file) {
   }
 }
 
+const notice = (code) => win && !win.isDestroyed() && win.webContents.send("notice", code);
+let lastShared = null; // the library as last read from the folder
+let told = false;
+
 // Folders and reading positions: from the notes folder when there is one, else settings.json.
-// A library file that cannot be read gives what was read before, so the next write does not
-// start from nothing.
+// While the folder's library cannot be read, what was read before is shown.
 function readShared() {
   const file = libraryFile();
   if (!file) return readSettings();
-  const d = readJsonFile(file);
-  if (d) lastShared = d;
+  try {
+    const d = readJsonFile(file);
+    if (d) lastShared = d;
+  } catch {}
   return lastShared || {};
 }
 
+// Returns false when nothing was written: the library file is there but cannot be read now
+// (the change is tried again with the next one), or the folder went away. Callers keep what
+// they wanted to write until it went through.
 function writeShared(patch) {
   const file = libraryFile();
-  if (!file) return writeSettings(patch);
-  const next = { ...readShared(), ...patch, v: 1 };
+  if (!file) {
+    // The chosen folder cannot be reached: kept here, and carried into it when it is back.
+    writeSettings(data.dir ? { ...patch, fallbackEdits: true } : patch);
+    return true;
+  }
+  let base;
+  try {
+    base = readJsonFile(file);
+  } catch {
+    if (!told) notice("libraryunavailable");
+    told = true;
+    return false;
+  }
+  const next = { ...(base || lastShared || {}), ...patch, v: 1 };
   try {
     writeJson(file, next);
   } catch {
-    // The folder went away while the app was open: the change lives until the app quits.
+    if (!told) notice("librarysave");
+    told = true;
+    return false;
   }
   lastShared = next;
-  return next;
+  told = false;
+  return true;
 }
 
-// Two libraries in one: `into` wins where both say something, folders with the same name
-// become one, nothing is taken away.
+// A reading position: page, number of pages, and when (for two computers: the later wins).
+const cleanPositions = (v) => {
+  const out = {};
+  for (const [id, p] of Object.entries(v && typeof v === "object" ? v : {})) {
+    if (isBookId(id) && p && Number.isInteger(p.page) && p.page > 0) out[id] = { page: p.page, total: Number.isInteger(p.total) ? p.total : 0, at: typeof p.at === "number" ? p.at : 0 };
+  }
+  return out;
+};
+const later = (a, b) => {
+  const out = { ...a };
+  for (const [id, p] of Object.entries(b)) if (!out[id] || (p.at || 0) > (out[id].at || 0)) out[id] = p;
+  return out;
+};
+
+// Two libraries in one: `into` wins where both say something about folders, folders with the
+// same name become one, nothing is taken away; for reading positions the later one wins.
 function mergeLibrary(into, from) {
   const a = cleanShelf(into);
   const b = cleanShelf(from);
@@ -146,20 +208,20 @@ function mergeLibrary(into, from) {
   const shelf = {};
   for (const [book, folder] of Object.entries(b.shelf)) shelf[book] = same[folder] || folder;
   Object.assign(shelf, a.shelf);
-  const positions = (v) => (v && typeof v === "object" ? v : {});
-  const recent = { ...positions(from.recent) };
-  for (const [id, at] of Object.entries(positions(into.recent))) if (typeof at === "number") recent[id] = Math.max(at, recent[id] || 0);
+  const times = (v) => (v && typeof v === "object" ? v : {});
+  const recent = { ...times(from.recent) };
+  for (const [id, at] of Object.entries(times(into.recent))) if (typeof at === "number") recent[id] = Math.max(at, recent[id] || 0);
   return {
     ...cleanShelf({ folders, shelf, sort: into.sort || from.sort }),
-    progress: { ...positions(from.progress), ...positions(into.progress) },
+    progress: later(cleanPositions(into.progress), cleanPositions(from.progress)),
     recent,
   };
 }
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
 
-// Notes that were written on this computer while the folder could not be reached go into the
-// folder when it is back; the copy here is put aside, so it does not come back later.
+// Once the folder holds them, the notes on this computer are put aside (not deleted), so they
+// do not come back later.
 function moveLocalNotesAside() {
   const local = path.join(app.getPath("userData"), "notes");
   if (!fs.existsSync(local)) return;
@@ -170,16 +232,28 @@ function applyDataDir() {
   const dir = chosenDir();
   data = { dir, reachable: !dir || reach(dir) };
   lastShared = null;
-  progress = null; // read again from the right place
+  told = false;
+  progressMine = {};
   reader.setDataRoot(dir && data.reachable ? dir : null);
-  if (dir && data.reachable && fs.existsSync(path.join(app.getPath("userData"), "notes"))) {
+  if (!dir || !data.reachable) return;
+  // What was written on this computer while the folder could not be reached (or before it
+  // was chosen) goes into the folder now.
+  if (fs.existsSync(path.join(app.getPath("userData"), "notes"))) {
     try {
       reader.mergeNotes(app.getPath("userData"), dir);
       moveLocalNotesAside();
-      reader.setDataRoot(dir);
     } catch {
       // Tried again at the next start.
     }
+  }
+  const s = readSettings();
+  if (s.fallbackEdits) {
+    try {
+      const file = path.join(dir, LIBRARY);
+      const theirs = readJsonFile(file) || {};
+      writeJson(file, { ...theirs, ...mergeLibrary(theirs, pick(s, SHARED)), v: 1 });
+      writeSettings({ fallbackEdits: false });
+    } catch {}
   }
 }
 
@@ -219,20 +293,51 @@ function cleanShelf(input) {
 
 const readShelf = () => cleanShelf(readShared());
 
-// Where each book was last read. Written a moment after the page changes, and when the app quits.
-let progress = null;
+// The window's folders against what is on disk now: only what the window changed since it
+// last loaded or saved them is applied, so another computer's changes in between stay.
+let shelfBase = null; // what the window believes: its last load or its last save
+function mergeShelf(base, mine, theirs) {
+  const b = new Map(base.folders.map((f) => [f.id, f]));
+  const m = new Map(mine.folders.map((f) => [f.id, f]));
+  const t = new Set(theirs.folders.map((f) => f.id));
+  const same = (x, y) => !!x && !!y && x.name === y.name && x.color === y.color;
+  const folders = [];
+  for (const f of theirs.folders) {
+    if (b.has(f.id) && !m.has(f.id)) continue; // deleted here
+    const mf = m.get(f.id);
+    folders.push(mf && !same(mf, b.get(f.id)) ? mf : f); // renamed or recoloured here
+  }
+  for (const f of mine.folders) if (!b.has(f.id) && !t.has(f.id)) folders.push(f); // made here
+  const shelf = { ...theirs.shelf };
+  for (const book of new Set([...Object.keys(base.shelf), ...Object.keys(mine.shelf)])) {
+    if (base.shelf[book] === mine.shelf[book]) continue;
+    if (mine.shelf[book]) shelf[book] = mine.shelf[book];
+    else delete shelf[book];
+  }
+  return cleanShelf({ folders, shelf, sort: mine.sort !== base.sort ? mine.sort : theirs.sort });
+}
+
+// Where each book was last read. Only the books read in this session are written (into what
+// is on disk then), a moment after the page changes and when the app quits.
+let progressMine = {};
 let progressTimer = null;
-const getProgress = () => (progress ??= { ...(readShared().progress || {}) });
+const getProgress = () => ({ ...cleanPositions(readShared().progress), ...progressMine });
 function flushProgress() {
   clearTimeout(progressTimer);
   progressTimer = null;
-  if (progress) writeShared({ progress });
+  if (!Object.keys(progressMine).length) return;
+  const mine = progressMine;
+  if (writeShared({ progress: later(cleanPositions(readShared().progress), mine) })) {
+    for (const id of Object.keys(mine)) if (progressMine[id] === mine[id]) delete progressMine[id];
+  } else {
+    progressTimer = setTimeout(flushProgress, 30000); // tried again
+  }
 }
 function noteProgress(state) {
   if (!state.ready || !isBookId(state.id) || !/^\d+$/.test(state.page || "")) return;
-  const p = getProgress();
-  if (p[state.id]?.page === +state.page && p[state.id]?.total === state.total) return;
-  p[state.id] = { page: +state.page, total: state.total };
+  const had = progressMine[state.id] || cleanPositions(readShared().progress)[state.id];
+  if (had?.page === +state.page && had?.total === state.total) return;
+  progressMine[state.id] = { page: +state.page, total: state.total, at: Date.now() };
   progressTimer ??= setTimeout(flushProgress, 1500);
 }
 
@@ -350,7 +455,10 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", flushProgress);
+app.on("before-quit", () => {
+  flushProgress();
+  reader.writeAll();
+});
 
 // ---------------------------------------------------------------- IPC
 
@@ -392,12 +500,13 @@ ipcMain.handle(
     const pdfs = settings.pdfs || {};
     const notes = reader.counts();
     const books = await look(() => edubase.library());
+    const progress = getProgress();
     // Edubase's order is kept in `i`; the interface sorts.
     return books.map((b, i) => ({
       ...b,
       i,
       seen: recent[b.id] || 0,
-      progress: getProgress()[b.id] || null,
+      progress: progress[b.id] || null,
       pdf: typeof pdfs[b.id] === "string" && fs.existsSync(pdfs[b.id]),
       notes: notes[b.id] || 0,
     }));
@@ -420,61 +529,64 @@ ipcMain.handle("opened", (_e, id) => {
   writeShared({ recent });
 });
 
-ipcMain.handle("shelf", () => readShelf());
+ipcMain.handle("shelf", () => (shelfBase = readShelf()));
 ipcMain.handle("save-shelf", (_e, input) => {
-  const next = cleanShelf(input);
-  writeShared(next);
-  return next;
+  const mine = cleanShelf(input);
+  const merged = mergeShelf(shelfBase || mine, mine, readShelf());
+  // Not written (the library cannot be read now): the base stays, so the next save carries
+  // this change along.
+  if (writeShared(merged)) shelfBase = mine;
+  return merged;
 });
 
 // ---------------------------------------------------------------- IPC: the notes folder
 
-// Windows names the user's OneDrive folder in an environment variable.
-const oneDrive = () => (!isMac && process.env.OneDrive && path.isAbsolute(process.env.OneDrive) && fs.existsSync(process.env.OneDrive) ? process.env.OneDrive : null);
-
 ipcMain.handle("data-dir", () => ({ ...dataInfo(), iCloud: isMac && fs.existsSync(iCloudDrive()), oneDrive: !!oneDrive() }));
 
 // The user picks a folder. Notes and folders go there, added to what is there already (a
-// second computer finds the first one's). A folder that is not called Stapel and holds no
-// Stapel data gets a "Stapel" folder inside, so iCloud Drive itself stays tidy.
+// second computer finds the first one's). iCloud Drive and OneDrive get a "Stapel" folder; a
+// folder picked by hand gets one too, unless it is called Stapel or holds Stapel's library.
+// `changed` is false when nothing changed (the dialog was closed); `carried` is false when the
+// folder used so far could not be reached, so what is in it did not come along.
 ipcMain.handle(
   "choose-data-dir",
   wrap(async (where) => {
     if (job || updating) throw new Error("busy");
-    let picked;
+    let target;
     if (where === "icloud" && isMac && fs.existsSync(iCloudDrive())) {
-      picked = iCloudDrive();
+      target = path.join(iCloudDrive(), "Stapel");
     } else if (where === "onedrive" && oneDrive()) {
-      picked = oneDrive();
+      target = path.join(oneDrive(), "Stapel");
     } else {
       const r = await dialog.showOpenDialog(win, {
         properties: ["openDirectory", "createDirectory"],
         defaultPath: isMac && fs.existsSync(iCloudDrive()) ? iCloudDrive() : oneDrive() || app.getPath("documents"),
       });
-      if (r.canceled || !r.filePaths[0]) return dataInfo();
-      picked = r.filePaths[0];
+      if (r.canceled || !r.filePaths[0]) return { ...dataInfo(), changed: false };
+      const picked = r.filePaths[0];
+      target = path.basename(picked) === "Stapel" || hasStapelData(picked) ? picked : path.join(picked, "Stapel");
     }
-    const target = path.basename(picked) === "Stapel" || hasStapelData(picked) ? picked : path.join(picked, "Stapel");
     const own = app.getPath("userData");
-    if (target === own || target.startsWith(own + path.sep)) throw new Error("ownfolder");
-    if (data.dir && path.resolve(data.dir) === path.resolve(target)) return dataInfo();
+    if (inside(target, own) || inside(own, target)) throw new Error("ownfolder");
+    if (data.dir && realPath(data.dir) === realPath(target)) return { ...dataInfo(), changed: false };
     flushProgress();
+    const carried = !data.dir || data.reachable;
     const fromRoot = data.dir && data.reachable ? data.dir : own;
     try {
       fs.mkdirSync(target, { recursive: true });
       reader.mergeNotes(fromRoot, target);
-      writeJson(path.join(target, LIBRARY), { ...mergeLibrary(readJsonFile(path.join(target, LIBRARY)) || {}, pick(readShared(), SHARED)), v: 1 });
-    } catch {
-      throw new Error("notesdisk");
+      const file = path.join(target, LIBRARY);
+      const theirs = readJsonFile(file) || {};
+      writeJson(file, { ...theirs, ...mergeLibrary(theirs, pick(readShared(), SHARED)), v: 1 });
+    } catch (err) {
+      throw new Error(["notesunavailable", "notesnewer"].includes(err.message) ? err.message : "notesdisk");
     }
-    if (fromRoot === own) {
-      try {
-        moveLocalNotesAside();
-      } catch {}
-    }
-    writeSettings({ dataDir: target });
+    // From here on the folder is the place. The notes on this computer are put aside by
+    // applyDataDir, after the setting is on disk (a crash in between leaves them where they are).
+    writeSettings({ dataDir: target, fallbackEdits: false });
+    if (chosenDir() !== target) throw new Error("notesdisk");
     applyDataDir();
-    return dataInfo();
+    return { ...dataInfo(), changed: true, carried };
   }),
 );
 
@@ -484,15 +596,22 @@ ipcMain.handle(
   "reset-data-dir",
   wrap(async () => {
     if (job || updating) throw new Error("busy");
-    if (!data.dir) return dataInfo();
+    if (!data.dir) return { ...dataInfo(), changed: false };
     flushProgress();
+    const carried = data.reachable;
     if (data.reachable) {
-      reader.mergeNotes(data.dir, app.getPath("userData"));
-      writeSettings(mergeLibrary(readJsonFile(path.join(data.dir, LIBRARY)) || lastShared || {}, pick(readSettings(), SHARED)));
+      try {
+        reader.mergeNotes(data.dir, app.getPath("userData"));
+        const theirs = readJsonFile(path.join(data.dir, LIBRARY)) || lastShared || {};
+        writeSettings(mergeLibrary(theirs, pick(readSettings(), SHARED)));
+      } catch (err) {
+        throw new Error(["notesunavailable", "notesnewer"].includes(err.message) ? err.message : "notesdisk");
+      }
     }
-    writeSettings({ dataDir: null });
+    writeSettings({ dataDir: null, fallbackEdits: false });
+    if (chosenDir()) throw new Error("notesdisk");
     applyDataDir();
-    return dataInfo();
+    return { ...dataInfo(), changed: true, carried };
   }),
 );
 

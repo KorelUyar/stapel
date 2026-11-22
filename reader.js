@@ -31,32 +31,40 @@ const notesDirIn = (root) => path.join(root, "notes");
 const notesDir = () => notesDirIn(dataRoot || app.getPath("userData"));
 const notesFile = (id, dir = notesDir()) => path.join(dir, `${id}.json`);
 
+// Only a file that is not there means "no notes". A file that is there but cannot be read
+// right now (not downloaded yet from iCloud Drive or OneDrive, locked by another program)
+// throws: saving over it would keep one page and lose the rest.
+// A file of a newer Stapel (v > 1) is read as far as this version understands it, and not
+// written (save throws).
 function load(id, dir) {
-  const empty = () => ({ pages: Object.create(null), bookmarks: [] });
+  const empty = () => ({ v: 1, pages: Object.create(null), bookmarks: [] });
   if (!isId(id)) return empty();
   const file = notesFile(id, dir);
   let text;
   try {
     text = fs.readFileSync(file, "utf8");
-  } catch {
-    return empty(); // no notes yet
+  } catch (err) {
+    if (err.code === "ENOENT") return empty(); // no notes yet
+    throw new Error("notesunavailable");
   }
+  let d;
   try {
-    const d = JSON.parse(text);
-    return { pages: cleanPages(d.pages), bookmarks: cleanBookmarks(d.bookmarks) };
+    d = JSON.parse(text);
+    if (!d || typeof d !== "object") throw new Error("not notes");
   } catch {
-    // A file that cannot be read is put aside, not overwritten: the next save would
-    // otherwise keep one page and lose the rest. (A file that is half synced is read again
-    // the next time: it is put aside only when it stays unreadable.)
+    // Not JSON: broken on disk. It is put aside (the notes in it are kept there) and the
+    // book starts again; both iCloud Drive and OneDrive put files in place whole.
     try {
       fs.renameSync(file, `${file}.broken-${Date.now()}`);
     } catch {}
     return empty();
   }
+  return { v: Number(d.v) || 1, pages: cleanPages(d.pages, true), bookmarks: cleanBookmarks(d.bookmarks) };
 }
 
 function save(id, data, dir = notesDir()) {
   if (!isId(id)) return false;
+  if (data.v > 1) throw new Error("notesnewer");
   const file = notesFile(id, dir);
   const mine = dir === notesDir();
   const empty = !Object.keys(data.pages).length && !data.bookmarks.length;
@@ -75,14 +83,38 @@ function save(id, data, dir = notesDir()) {
   return true;
 }
 
+// What the page may see of a page's notes: the kinds this version draws.
+const KNOWN = new Set(["pen", "hl", "text"]);
+const known = (items) => items.filter((i) => KNOWN.has(i.t));
+const knownPages = (pages) => {
+  const out = Object.create(null);
+  for (const [page, items] of Object.entries(pages)) {
+    const list = known(items);
+    if (list.length) out[page] = list;
+  }
+  return out;
+};
+
 // Notes arrive from a web page. Keep only what has exactly the expected shape.
 const num = (v, min, max) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
 // A page's name: a number, or a label such as "IV" or "12a". Starts with a letter or a digit.
 const pageKey = (p) => (typeof p === "string" || typeof p === "number") && /^[0-9A-Za-z][\w.\-]{0,23}$/.test(String(p));
 
-function cleanItem(it) {
+// A kind of note from a newer Stapel (notes can be shared by several computers): kept as it
+// is when it comes from disk, so saving here does not take it away.
+function otherItem(it) {
+  if (typeof it.t !== "string" || KNOWN.has(it.t) || !/^[a-z][\w-]{0,19}$/.test(it.t)) return null;
+  try {
+    return JSON.stringify(it).length <= 50_000 ? JSON.parse(JSON.stringify(it)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanItem(it, fromDisk = false) {
   if (!it || typeof it !== "object") return null;
   if (typeof it.id !== "string" || !/^[\w-]{1,32}$/.test(it.id)) return null;
+  if (fromDisk && !KNOWN.has(it.t)) return otherItem(it);
   if (typeof it.c !== "string" || !/^#[0-9a-f]{6}$/i.test(it.c)) return null;
   if (it.t === "pen" || it.t === "hl") {
     if (!num(it.w, 0.2, 60) || !Array.isArray(it.p) || it.p.length < 2 || it.p.length > 6000 || it.p.length % 2) return null;
@@ -101,26 +133,26 @@ function cleanItem(it) {
 }
 
 // One page: at most 2000 notes and about 3 MB, far more than a hand can draw on a page.
-function cleanItems(items) {
+function cleanItems(items, fromDisk = false) {
   if (!Array.isArray(items)) return [];
   const out = [];
   let size = 0;
   for (const raw of items.slice(0, 2000)) {
-    const it = cleanItem(raw);
+    const it = cleanItem(raw, fromDisk);
     if (!it) continue;
-    size += it.t === "text" ? it.text.length + 80 : it.p.length * 7 + (it.q ? it.q.length : 0) + 80;
+    size += it.t === "text" ? it.text.length + 80 : it.p ? it.p.length * 7 + (it.q ? it.q.length : 0) + 80 : JSON.stringify(it).length;
     if (size > 3_000_000) break;
     out.push(it);
   }
   return out;
 }
 
-function cleanPages(pages) {
+function cleanPages(pages, fromDisk = false) {
   const out = Object.create(null); // page names come from outside: no inherited keys
   if (!pages || typeof pages !== "object") return out;
   for (const key of Object.keys(pages).slice(0, 3000)) {
     if (!pageKey(key)) continue;
-    const items = cleanItems(pages[key]);
+    const items = cleanItems(pages[key], fromDisk);
     if (items.length) out[key] = items;
   }
   return out;
@@ -132,8 +164,15 @@ const cleanBookmarks = (list) => (Array.isArray(list) ? [...new Set(list.filter(
 const top = (it) => (it.t === "text" ? it.y : Math.min(...it.p.filter((_, i) => i % 2)));
 
 // What the side panel lists: pages with notes, what was marked on them and the typed text.
+// null while the book's notes cannot be read.
 function summary(id) {
-  const data = load(id);
+  let data;
+  try {
+    data = load(id);
+  } catch {
+    return null;
+  }
+  data.pages = knownPages(data.pages);
   const pages = Object.keys(data.pages).map((page) => {
     const items = data.pages[page].slice().sort((a, b) => top(a) - top(b));
     return {
@@ -150,6 +189,7 @@ function summary(id) {
 // bottom: the marked words and the typed text (drawings only as a number).
 function studySheet(id) {
   const data = load(id);
+  data.pages = knownPages(data.pages);
   return Object.keys(data.pages).map((page) => {
     const items = data.pages[page].slice().sort((a, b) => top(a) - top(b));
     return {
@@ -162,10 +202,14 @@ function studySheet(id) {
 
 function toggleBookmark(id, page) {
   if (!isId(id) || !pageKey(page)) return summary(id);
-  const data = load(id);
-  const key = String(page);
-  data.bookmarks = data.bookmarks.includes(key) ? data.bookmarks.filter((p) => p !== key) : [...data.bookmarks, key];
-  save(id, data);
+  try {
+    const data = load(id);
+    const key = String(page);
+    data.bookmarks = data.bookmarks.includes(key) ? data.bookmarks.filter((p) => p !== key) : [...data.bookmarks, key];
+    save(id, data);
+  } catch (err) {
+    notify("error", problem(err));
+  }
   return summary(id);
 }
 
@@ -182,8 +226,12 @@ function counts() {
     for (const f of files) {
       const m = f.match(/^(\d+)\.json$/);
       if (!m) continue;
-      const n = Object.values(load(m[1]).pages).reduce((a, p) => a + p.length, 0);
-      if (n) noteCounts.set(m[1], n);
+      try {
+        const n = Object.values(load(m[1]).pages).reduce((a, p) => a + p.length, 0);
+        if (n) noteCounts.set(m[1], n);
+      } catch {
+        // Not readable right now: counted the next time the folder is read.
+      }
     }
   }
   return Object.fromEntries([...noteCounts].filter(([, n]) => n > 0));
@@ -202,6 +250,7 @@ function mergeNotes(fromRoot, toRoot) {
   } catch {
     return 0;
   }
+  // Throws (and changes nothing more) when a file on either side cannot be read now.
   let books = 0;
   for (const f of files) {
     const m = f.match(/^(\d+)\.json$/);
@@ -212,13 +261,76 @@ function mergeNotes(fromRoot, toRoot) {
       const have = theirs.pages[page] || [];
       const ids = new Set(have.map((i) => i.id));
       const merged = [...have, ...mine.pages[page].filter((i) => !ids.has(i.id))];
-      theirs.pages[page] = cleanItems(merged);
+      theirs.pages[page] = cleanItems(merged, true);
     }
     theirs.bookmarks = [...new Set([...theirs.bookmarks, ...mine.bookmarks])];
-    if (!save(m[1], theirs, to)) throw new Error("disk");
+    try {
+      if (!save(m[1], theirs, to)) throw new Error("too large");
+    } catch (err) {
+      throw new Error(err.message === "notesnewer" ? "notesnewer" : "notesdisk");
+    }
     books++;
   }
   return books;
+}
+
+// What went wrong with a book's notes, as an error code the interface knows.
+const problem = (err) => (["notesunavailable", "notesnewer"].includes(err && err.message) ? err.message : "notessave");
+
+// ---------------------------------------------------------------- writing what the page drew
+
+// The pages of a book that are drawn on but not on disk yet. Written at once; when the disk
+// says no (a file held by OneDrive or a virus scanner, a folder that went away), tried again
+// a little later, and the interface says so if it keeps failing. The next change to the same
+// book takes them along.
+const unsaved = new Map(); // book id -> Map(page -> items)
+
+function writePages(id, attempt = 0) {
+  const pages = unsaved.get(id);
+  if (!pages || !pages.size) return true;
+  try {
+    const all = load(id);
+    for (const [page, items] of pages) {
+      // Notes of a kind only a newer Stapel draws stay where they are.
+      const others = (all.pages[page] || []).filter((i) => !KNOWN.has(i.t));
+      const next = [...items, ...others];
+      if (next.length) all.pages[page] = next;
+      else delete all.pages[page];
+    }
+    if (!save(id, all)) throw new Error("too large");
+    unsaved.delete(id);
+    notify("notes", summary(id));
+    return true;
+  } catch (err) {
+    const code = problem(err);
+    if (code !== "notesnewer" && attempt < 3) setTimeout(() => writePages(id, attempt + 1), [300, 1500, 5000][attempt]);
+    else notify("error", code);
+    return false;
+  }
+}
+
+// Before the app quits: one last try for whatever is not on disk yet.
+function writeAll() {
+  for (const id of [...unsaved.keys()]) writePages(id, 3);
+}
+
+// ---------------------------------------------------------------- reading what the page needs
+
+// A book's notes go to the page only once they could be read; until then the page does not
+// let anyone draw (inject.js), so nothing can be saved over notes that are not loaded.
+function sendNotes(id, attempt = 0) {
+  if (id !== openId()) return;
+  let pages;
+  try {
+    pages = knownPages(load(id).pages);
+  } catch (err) {
+    if (attempt === 0) notify("error", problem(err));
+    if (attempt < 20) setTimeout(() => sendNotes(id, attempt + 1), 3000);
+    return;
+  }
+  run(`window.__stapel && window.__stapel.cmd("ink", ${JSON.stringify({ id, pages })})`);
+  const sum = summary(id);
+  if (sum) notify("notes", sum);
 }
 
 function setDataRoot(dir) {
@@ -270,23 +382,18 @@ function onEvent(type, data, again = false) {
   // The page can know about a new book a moment before the main process has heard of the
   // new address: look once more before letting the message go.
   const about = type === "need-ink" ? data : data && data.id;
-  if (!again && isId(about) && about !== open && ["need-ink", "ink", "state"].includes(type)) {
+  if (!again && isId(about) && about !== open && ["need-ink", "ink", "state", "toc"].includes(type)) {
     setTimeout(() => onEvent(type, data, true), 250);
     return;
   }
   if (type === "need-ink") {
     if (!isId(data) || data !== open) return;
-    const pages = load(data).pages;
-    run(`window.__stapel && window.__stapel.cmd("ink", ${JSON.stringify({ id: data, pages })})`);
-    notify("notes", summary(data));
+    sendNotes(data);
   } else if (type === "ink") {
     if (!data || !isId(data.id) || data.id !== open || !pageKey(data.page)) return;
-    const all = load(data.id);
-    const items = cleanItems(data.items);
-    if (items.length) all.pages[String(data.page)] = items;
-    else delete all.pages[String(data.page)];
-    save(data.id, all);
-    notify("notes", summary(data.id));
+    if (!unsaved.has(data.id)) unsaved.set(data.id, new Map());
+    unsaved.get(data.id).set(String(data.page), cleanItems(data.items));
+    writePages(data.id);
   } else if (type === "state") {
     if (!data || typeof data !== "object") return;
     const s = (v, n) => (typeof v === "string" ? v.slice(0, n) : "");
@@ -306,7 +413,8 @@ function onEvent(type, data, again = false) {
       unsupported: data.unsupported === true,
     });
   } else if (type === "toc") {
-    if (!data || !isId(data.id) || !Array.isArray(data.items)) return;
+    // Only about the book on screen: the app keeps it on disk.
+    if (!data || !isId(data.id) || data.id !== open || !Array.isArray(data.items)) return;
     notify("toc", { id: data.id, items: cleanToc(data.items) });
   } else if (type === "search") {
     if (!data || typeof data.q !== "string" || !Array.isArray(data.items)) return;
@@ -338,6 +446,7 @@ module.exports = {
   studySheet,
   counts,
   toggleBookmark,
+  writeAll,
   mergeNotes,
   setDataRoot,
   cleanToc,

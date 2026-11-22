@@ -996,6 +996,11 @@ input:focus {
   width: 170px;
   aspect-ratio: 3 / 4;
   margin-top: 10px;
+  transition: width 0.2s ease;
+}
+/* Two chapter lists need the room: the cover steps back. */
+.sheet:has(#chapterFields:not([hidden])) .sheet-cover {
+  width: 116px;
 }
 .sheet-cover img {
   position: absolute;

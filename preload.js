@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld("app", {
   openBookPdf: (id) => ipcRenderer.invoke("open-book-pdf", id),
   reader: (name, arg) => ipcRenderer.invoke("reader-cmd", name, arg),
   notes: (id) => ipcRenderer.invoke("notes", id),
-  studySheet: (id) => ipcRenderer.invoke("study-sheet", id),
+  studySheet: (id) => call("study-sheet", id),
   copy: (text, html) => ipcRenderer.invoke("copy", text, html),
   toc: (id, lookUp) => call("toc", id, lookUp),
   dataDir: () => ipcRenderer.invoke("data-dir"),
@@ -43,4 +43,5 @@ contextBridge.exposeInMainWorld("app", {
   updatePage: () => ipcRenderer.invoke("update-page"),
   onUpdate: (cb) => ipcRenderer.on("update", (_e, data) => cb(data)),
   onProgress: (cb) => ipcRenderer.on("progress", (_e, p) => cb(p)),
+  onNotice: (cb) => ipcRenderer.on("notice", (_e, code) => cb(code)),
 });
